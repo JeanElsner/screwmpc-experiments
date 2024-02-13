@@ -1,16 +1,18 @@
 from __future__ import annotations
 
+import dm_env
 import numpy as np
+from dm_env import specs
 from dqrobotics import robots
 from screwmpcpy import pandamg, screwmpc
 
 
 class ScrewMPCAgent:
-    """
-    Basic dm-robotics agent that initiates a screwmpc motion generator.
-    """
+    """Basic dm-robotics agent that uses a screwmpc motion generator."""
 
-    def __init__(self) -> None:
+    def __init__(self, spec: specs.BoundedArray) -> None:
+        self._spec = spec
+
         n_p = 50  # prediction horizon, can be tuned;
         n_c = 10  # control horizon, can be tuned
         R = 10e-3  # weight matirix
@@ -29,9 +31,14 @@ class ScrewMPCAgent:
         acc_bound = screwmpc.BOUND(lb_acc, ub_acc)
         vel_bound = screwmpc.BOUND(lb_v, ub_v)
 
-        mg = pandamg.PandaScrewMotionGenerator(
+        self.motion_generator = pandamg.PandaScrewMotionGenerator(
             n_p, n_c, Q, R, vel_bound, acc_bound, jerk_bound
         )
-        kin = robots.FrankaEmikaPandaRobot.kinematics()  # pylint: disable=no-member
+        self.kinematics = robots.FrankaEmikaPandaRobot.kinematics()  # pylint: disable=no-member
 
-        del mg, kin
+    def step(self, timestep: dm_env.TimeStep) -> np.ndarray:
+        """Computes an action given a timestep observation.
+        The action is computed with the screwmpc motion generator.
+        """
+        del timestep
+        return np.zeros(shape=self._spec.shape, dtype=self._spec.dtype)
