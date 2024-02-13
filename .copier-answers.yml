@@ -1,0 +1,12 @@
+# Changes here will be overwritten by Copier; NEVER EDIT MANUALLY
+_commit: 2024.01.24
+_src_path: gh:scientific-python/cookie
+backend: hatch
+email: jean.elsner@tum.de
+full_name: Jean Elsner
+license: Apache
+org: JeanElsner
+project_name: screwmpc-experiments
+project_short_description: Experiments based on screwmpc.
+url: https://github.com/JeanElsner/screwmpc-experiments
+vcs: true
