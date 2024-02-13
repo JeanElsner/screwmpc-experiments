@@ -29,9 +29,12 @@ classifiers = [
 ]
 dynamic = ["version"]
 dependencies = [
-  "dm-robotics-panda",
+  "dm-robotics-panda >= 0.4.6",
   "screwmpcpy",
 ]
+
+[project.scripts]
+screwmpc-random = "screwmpc_experiments.launchers.random:main"
 
 [project.optional-dependencies]
 test = [
@@ -95,6 +98,7 @@ enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
 warn_unreachable = true
 disallow_untyped_defs = false
 disallow_incomplete_defs = false
+ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "screwmpc_experiments.*"
@@ -155,3 +159,4 @@ messages_control.disable = [
   "missing-module-docstring",
   "wrong-import-position",
 ]
+good-names = ["i", "Q", "R"]
