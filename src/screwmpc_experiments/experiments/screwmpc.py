@@ -11,8 +11,8 @@ class ScrewMPCAgent:
     """
 
     def __init__(self) -> None:
-        Np = 50  # prediction horizon, can be tuned;
-        Nc = 10  # control horizon, can be tuned
+        n_p = 50  # prediction horizon, can be tuned;
+        n_c = 10  # control horizon, can be tuned
         R = 10e-3  # weight matirix
         Q = 10e9  # weight matrix
 
@@ -30,7 +30,7 @@ class ScrewMPCAgent:
         vel_bound = screwmpc.BOUND(lb_v, ub_v)
 
         mg = pandamg.PandaScrewMotionGenerator(
-            Np, Nc, Q, R, vel_bound, acc_bound, jerk_bound
+            n_p, n_c, Q, R, vel_bound, acc_bound, jerk_bound
         )
         kin = robots.FrankaEmikaPandaRobot.kinematics()
 
