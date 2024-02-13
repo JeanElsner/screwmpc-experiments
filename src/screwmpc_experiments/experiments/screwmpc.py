@@ -2,14 +2,19 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import pathlib
 
 import dm_env
+import dm_robotics.panda
 import dqrobotics
 import numpy as np
 import panda_py
 import spatialmath
+from dm_control import mjcf
 from dm_env import specs
 from dm_robotics.geometry import pose_distribution
+from dm_robotics.moma import effector, prop
+from dm_robotics.transformations import transformations as tr
 from dqrobotics import robots
 from screwmpcpy import pandamg, screwmpc
 
@@ -62,6 +67,7 @@ class ScrewMPCAgent:
         self._spec = spec
         self._waypoints: list[tuple[np.ndarray, np.ndarray]] = []
         self._goal: dqrobotics.DQ | None = None
+        self._x_goal: tuple[np.ndarray, np.ndarray] | None = None
         self.init_screwmpc()
 
     def add_waypoint(self, waypoint: tuple[np.ndarray, np.ndarray]) -> None:
@@ -84,16 +90,19 @@ class ScrewMPCAgent:
         added with :py:func:`add_waypoint` becomes the goal.
         """
         action = np.zeros(shape=self._spec.shape, dtype=self._spec.dtype)
-        if self._goal is not None:
+        if self._goal is not None and self._x_goal is not None:
             action[:7] = self.motion_generator.step(
                 timestep.observation["panda_joint_pos"], self._goal
             )
+            action[-7:-4] = self._x_goal[0]
+            action[-4:] = self._x_goal[1]
         if self.at_goal(timestep):
             logger.info("Goal reached.")
             self._goal = None
         if self._goal is None:
             with contextlib.suppress(IndexError):
-                self._goal = pose_to_dq(self._waypoints.pop(0))
+                self._x_goal = self._waypoints.pop(0)
+                self._goal = pose_to_dq(self._x_goal)
                 logger.info("Tracking new goal.")
 
         return action
@@ -138,3 +147,72 @@ class ScrewMPCAgent:
             n_p, n_c, Q, R, vel_bound, acc_bound, jerk_bound
         )
         self.kinematics = robots.FrankaEmikaPandaRobot.kinematics()  # pylint: disable=no-member
+
+
+class Goal(prop.Prop):  # type: ignore[misc]
+    """Intangible prop representing the goal pose."""
+
+    def _build(self) -> None:  # pylint: disable=arguments-differ
+        xml_path = (
+            pathlib.Path(pathlib.Path(dm_robotics.panda.__file__).parent)
+            / "assets"
+            / "panda"
+            / "panda_hand.xml"
+        )
+        mjcf_root = mjcf.from_path(xml_path)
+        for geom in mjcf_root.find_all("geom"):
+            geom.rgba = (1, 0, 0, 0.3)
+            geom.conaffinity = 0
+            geom.contype = 0
+        super()._build("goal", mjcf_root, "panda_hand")
+
+
+class SceneEffector(effector.Effector):  # type: ignore[misc]
+    """
+    Effector used to update the state of the scene.
+    """
+
+    def __init__(self, goal: Goal) -> None:
+        self._goal = goal
+        self._spec = None
+
+    def close(self) -> None:
+        pass
+
+    def initialize_episode(
+        self, physics: mjcf.Physics, random_state: np.random.RandomState
+    ) -> None:
+        pass
+
+    def action_spec(self, physics: mjcf.Physics) -> specs.BoundedArray:
+        del physics
+        if self._spec is None:
+            self._spec = specs.BoundedArray(
+                (7,),
+                np.float32,
+                np.full((7,), -10, dtype=np.float32),
+                np.full((7,), 10, dtype=np.float32),
+                "\t".join(
+                    [
+                        f"{self.prefix}_{n}"
+                        for n in [
+                            "goal_x",
+                            "goal_y",
+                            "goal_z",
+                            "goal_qw",
+                            "goal_qx",
+                            "goal_qy",
+                            "goal_qz",
+                        ]
+                    ]
+                ),
+            )
+        return self._spec
+
+    @property
+    def prefix(self) -> str:
+        return "scene"
+
+    def set_control(self, physics: mjcf.Physics, command: np.ndarray) -> None:
+        minus45deg = tr.euler_to_quat([0, 0, -np.pi / 4])
+        self._goal.set_pose(physics, command[:3], tr.quat_mul(command[3:], minus45deg))

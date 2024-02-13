@@ -8,6 +8,7 @@ import argparse
 import logging
 
 import numpy as np
+from dm_robotics.moma.models.arenas import empty
 from dm_robotics.panda import arm_constants, environment, run_loop, utils
 from dm_robotics.panda import parameters as params
 
@@ -21,25 +22,33 @@ def main() -> None:
     Main function of this experiment.
     Run from the terminal by executing `screwmpc-random`.
     """
-    logging.basicConfig(level=logging.INFO, force=True)
-
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--robot-ip", default=None, type=str, help="Robot IP or hostname for HIL"
+        "--robot-ip", default=None, type=str, help="Robot IP or hostname for HIL."
     )
     parser.add_argument(
-        "--no-gui", action="store_true", help="Deactivate visualization"
+        "--no-gui", action="store_true", help="Deactivate visualization."
+    )
+    parser.add_argument(
+        "--seed", "-s", type=int, help="Set the random seed.", default=2
     )
     args = parser.parse_args()
+    logging.basicConfig(level=logging.INFO, force=True)
 
     robot_params = params.RobotParams(
         robot_ip=args.robot_ip, actuation=arm_constants.Actuation.JOINT_VELOCITY
     )
-    panda_env = environment.PandaEnvironment(robot_params, control_timestep=0.01)
+
+    goal = screwmpc.Goal()
+    arena = empty.Arena()
+    arena.attach(goal)
+
+    panda_env = environment.PandaEnvironment(robot_params, arena, control_timestep=0.01)
+    panda_env.add_extra_effectors([screwmpc.SceneEffector(goal)])
 
     with panda_env.build_task_environment() as env:
-        # Use a fixed seed for reproducibility
-        rng = np.random.RandomState(seed=1)  # pylint: disable=no-member
+        rng = np.random.RandomState(seed=args.seed)  # pylint: disable=no-member
+
         # Generate 10 random poses within these bounds
         # given as x, y, z (linear) and X, Y, Z (angular, euler angles)
         min_pose_bounds = np.array(
