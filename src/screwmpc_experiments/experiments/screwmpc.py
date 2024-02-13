@@ -12,6 +12,7 @@ import panda_py
 import spatialmath
 from dm_control import mjcf
 from dm_env import specs
+from dm_robotics.agentflow import spec_utils
 from dm_robotics.geometry import pose_distribution
 from dm_robotics.moma import effector, prop
 from dm_robotics.transformations import transformations as tr
@@ -63,8 +64,9 @@ def generate_random_poses(
 class ScrewMPCAgent:
     """Basic dm-robotics agent that uses a screwmpc motion generator."""
 
-    def __init__(self, spec: specs.BoundedArray) -> None:
+    def __init__(self, spec: specs.BoundedArray, goal_tolerance: float) -> None:
         self._spec = spec
+        self._goal_tolerance = goal_tolerance
         self._waypoints: list[tuple[np.ndarray, np.ndarray]] = []
         self._goal: dqrobotics.DQ | None = None
         self._x_goal: tuple[np.ndarray, np.ndarray] | None = None
@@ -103,7 +105,7 @@ class ScrewMPCAgent:
             with contextlib.suppress(IndexError):
                 self._x_goal = self._waypoints.pop(0)
                 self._goal = pose_to_dq(self._x_goal)
-                logger.info("Tracking new goal.")
+                logger.info("Tracking new goal: %s", self._goal)
 
         return action
 
@@ -120,7 +122,7 @@ class ScrewMPCAgent:
                 .norm()
                 .vec8()
             )
-            < 0.05
+            < self._goal_tolerance
         )
 
     def init_screwmpc(self) -> None:
@@ -216,3 +218,10 @@ class SceneEffector(effector.Effector):  # type: ignore[misc]
     def set_control(self, physics: mjcf.Physics, command: np.ndarray) -> None:
         minus45deg = tr.euler_to_quat([0, 0, -np.pi / 4])
         self._goal.set_pose(physics, command[:3], tr.quat_mul(command[3:], minus45deg))
+
+
+def goal_reward(observation: spec_utils.ObservationValue) -> float:
+    """Computes a reward based on distance between end-effector and goal."""
+    pos_distance = np.linalg.norm(observation["goal_pos"] - observation["flange_pos"])
+    rot_dist = tr.quat_dist(observation["goal_quat"], observation["flange_quat"])
+    return float(-pos_distance - rot_dist / np.pi)
