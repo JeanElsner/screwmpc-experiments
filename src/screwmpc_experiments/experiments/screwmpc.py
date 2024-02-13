@@ -32,6 +32,6 @@ class ScrewMPCAgent:
         mg = pandamg.PandaScrewMotionGenerator(
             n_p, n_c, Q, R, vel_bound, acc_bound, jerk_bound
         )
-        kin = robots.FrankaEmikaPandaRobot.kinematics()
+        kin = robots.FrankaEmikaPandaRobot.kinematics()  # pylint: disable=no-member
 
         del mg, kin

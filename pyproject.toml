@@ -159,3 +159,4 @@ messages_control.disable = [
   "missing-module-docstring",
   "wrong-import-position",
 ]
+good-names = ["i", "Q", "R"]
