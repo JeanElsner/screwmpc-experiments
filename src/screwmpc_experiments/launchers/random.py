@@ -8,7 +8,8 @@ import argparse
 import logging
 
 import numpy as np
-from dm_robotics.agentflow.preprocessors import rewards
+from dm_env import specs
+from dm_robotics.agentflow.preprocessors import observation_transforms, rewards
 from dm_robotics.moma.models.arenas import empty
 from dm_robotics.moma.sensors import site_sensor
 from dm_robotics.panda import arm_constants, environment, run_loop, utils
@@ -55,6 +56,8 @@ def main() -> None:
         robot_params, arena, control_timestep=0.016
     )
 
+    # Add extra sensors for flange and goal reference sites
+    # to make them observable to the agent and preprocessors.
     flange_sensor = site_sensor.SiteSensor(
         panda_env.robots["panda"].arm.mjcf_model.find("site", "real_aligned_tcp"),
         "flange",
@@ -65,7 +68,16 @@ def main() -> None:
 
     panda_env.add_extra_sensors([flange_sensor, goal_sensor])
     panda_env.add_extra_effectors([screwmpc.SceneEffector(goal)])
-    panda_env.add_timestep_preprocessors([rewards.ComputeReward(screwmpc.goal_reward)])
+    panda_env.add_timestep_preprocessors(
+        [
+            observation_transforms.AddObservation(
+                "manipulability",
+                screwmpc.manipulability,
+                specs.Array((1,), dtype=np.float32),
+            ),
+            rewards.ComputeReward(screwmpc.goal_reward),
+        ]
+    )
 
     with panda_env.build_task_environment() as env:
         rng = np.random.RandomState(seed=args.seed)  # pylint: disable=no-member

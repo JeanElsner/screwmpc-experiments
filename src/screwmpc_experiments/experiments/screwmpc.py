@@ -9,16 +9,19 @@ import dm_robotics.panda
 import dqrobotics
 import numpy as np
 import panda_py
+import roboticstoolbox as rtb
 import spatialmath
 from dm_control import mjcf
 from dm_env import specs
 from dm_robotics.agentflow import spec_utils
+from dm_robotics.agentflow.preprocessors import timestep_preprocessor
 from dm_robotics.geometry import pose_distribution
 from dm_robotics.moma import effector, prop
 from dm_robotics.transformations import transformations as tr
 from dqrobotics import robots
 from screwmpcpy import pandamg, screwmpc
 
+panda_model = rtb.models.Panda()
 logger = logging.getLogger("screwmpc")
 
 
@@ -225,3 +228,11 @@ def goal_reward(observation: spec_utils.ObservationValue) -> float:
     pos_distance = np.linalg.norm(observation["goal_pos"] - observation["flange_pos"])
     rot_dist = tr.quat_dist(observation["goal_quat"], observation["flange_quat"])
     return float(-pos_distance - rot_dist / np.pi)
+
+
+def manipulability(timestep: timestep_preprocessor.PreprocessorTimestep) -> np.ndarray:
+    """Computes manipulability observable."""
+    observation = timestep.observation
+    return np.array(
+        [panda_model.manipulability(observation["panda_joint_pos"])], dtype=np.float32
+    )
