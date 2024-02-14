@@ -67,12 +67,15 @@ def generate_random_poses(
 class ScrewMPCAgent:
     """Basic dm-robotics agent that uses a screwmpc motion generator."""
 
-    def __init__(self, spec: specs.BoundedArray, goal_tolerance: float) -> None:
+    def __init__(
+        self, spec: specs.BoundedArray, goal_tolerance: float, use_mp: bool = False
+    ) -> None:
         self._spec = spec
         self._goal_tolerance = goal_tolerance
         self._waypoints: list[tuple[np.ndarray, np.ndarray]] = []
         self._goal: dqrobotics.DQ | None = None
         self._x_goal: tuple[np.ndarray, np.ndarray] | None = None
+        self._use_mp: bool = use_mp
         self.init_screwmpc()
 
     def add_waypoint(self, waypoint: tuple[np.ndarray, np.ndarray]) -> None:
@@ -148,9 +151,15 @@ class ScrewMPCAgent:
         acc_bound = screwmpc.BOUND(lb_acc, ub_acc)
         vel_bound = screwmpc.BOUND(lb_v, ub_v)
 
-        self.motion_generator = pandamg.PandaScrewMotionGenerator(
+        generator = (
+            pandamg.PandaScrewMpMotionGenerator
+            if self._use_mp
+            else pandamg.PandaScrewMotionGenerator
+        )
+        self.motion_generator = generator(
             n_p, n_c, Q, R, vel_bound, acc_bound, jerk_bound
         )
+
         self.kinematics = robots.FrankaEmikaPandaRobot.kinematics()  # pylint: disable=no-member
 
 

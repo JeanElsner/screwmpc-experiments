@@ -41,7 +41,13 @@ def main() -> None:
         help="Norm between two dual quaternion poses to consider a goal reached (default: 0.05)",
         default=0.05,
     )
+    parser.add_argument(
+        "--mp",
+        action="store_true",
+        help="Use agent with manipulability constraints.",
+    )
     args = parser.parse_args()
+
     logging.basicConfig(level=logging.INFO, force=True)
 
     robot_params = params.RobotParams(
@@ -93,7 +99,8 @@ def main() -> None:
         poses = screwmpc.generate_random_poses(
             10, min_pose_bounds, max_pose_bounds, rng
         )
-        agent = screwmpc.ScrewMPCAgent(env.action_spec(), args.goal_tolerance)
+
+        agent = screwmpc.ScrewMPCAgent(env.action_spec(), args.goal_tolerance, args.mp)
         for p in poses:
             agent.add_waypoint(p)
 
