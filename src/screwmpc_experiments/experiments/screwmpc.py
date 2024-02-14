@@ -154,6 +154,35 @@ class ScrewMPCAgent:
         self.kinematics = robots.FrankaEmikaPandaRobot.kinematics()  # pylint: disable=no-member
 
 
+class ScrewMPCMpAgent(ScrewMPCAgent):
+    """Basic dm-robotics agent that uses a screwmpc motion generator which incorporates manipulability."""
+
+    def init_screwmpc(self) -> None:
+        """Initializes the screwmpc motion generator."""
+        n_p = 50  # prediction horizon, can be tuned;
+        n_c = 10  # control horizon, can be tuned
+        R = 10e-3  # weight matirix
+        Q = 10e9  # weight matrix
+
+        ub_jerk = np.array([8500.0, 8500.0, 8500.0, 4500.0, 4500.0, 4500.0])
+        lb_jerk = -ub_jerk.copy()
+
+        ub_acc = np.array([17.0, 17.0, 17.0, 9.0, 9.0, 9.0])
+        lb_acc = -ub_acc.copy()
+
+        ub_v = np.array([2.5, 2.5, 2.5, 3.0, 3.0, 3.0])
+        lb_v = -ub_v.copy()
+
+        jerk_bound = screwmpc.BOUND(lb_jerk, ub_jerk)
+        acc_bound = screwmpc.BOUND(lb_acc, ub_acc)
+        vel_bound = screwmpc.BOUND(lb_v, ub_v)
+
+        self.motion_generator = pandamg.PandaScrewMpMotionGenerator(
+            n_p, n_c, Q, R, vel_bound, acc_bound, jerk_bound
+        )
+        self.kinematics = robots.FrankaEmikaPandaRobot.kinematics()  # pylint: disable=no-member
+
+
 class Goal(prop.Prop):  # type: ignore[misc]
     """Intangible prop representing the goal pose."""
 
