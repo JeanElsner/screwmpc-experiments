@@ -42,21 +42,11 @@ def main() -> None:
         default=0.05,
     )
     parser.add_argument(
-        "--agent",
-        type=str,
-        default="screwmpc",
-        help="Define the agent [screwmpc, screwmpc-mp], [Defaults: screwmpc].",
+        "--mp",
+        action="store_true",
+        help="Use agent with manipulability constraints.",
     )
     args = parser.parse_args()
-
-    agents = {
-        "screwmpc": screwmpc.ScrewMPCAgent,
-        "screwmpc-mp": screwmpc.ScrewMPCMpAgent,
-    }
-
-    if args.agent not in agents:
-        msg = f"{args.agent} not supported!"
-        raise KeyError(msg)
 
     logging.basicConfig(level=logging.INFO, force=True)
 
@@ -110,7 +100,7 @@ def main() -> None:
             10, min_pose_bounds, max_pose_bounds, rng
         )
 
-        agent = agents[args.agent](env.action_spec(), args.goal_tolerance)
+        agent = screwmpc.ScrewMPCAgent(env.action_spec(), args.goal_tolerance, args.mp)
         for p in poses:
             agent.add_waypoint(p)
 

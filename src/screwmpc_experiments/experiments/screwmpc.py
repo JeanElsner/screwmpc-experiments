@@ -67,12 +67,15 @@ def generate_random_poses(
 class ScrewMPCAgent:
     """Basic dm-robotics agent that uses a screwmpc motion generator."""
 
-    def __init__(self, spec: specs.BoundedArray, goal_tolerance: float) -> None:
+    def __init__(
+        self, spec: specs.BoundedArray, goal_tolerance: float, use_mp: bool = False
+    ) -> None:
         self._spec = spec
         self._goal_tolerance = goal_tolerance
         self._waypoints: list[tuple[np.ndarray, np.ndarray]] = []
         self._goal: dqrobotics.DQ | None = None
         self._x_goal: tuple[np.ndarray, np.ndarray] | None = None
+        self._use_mp: bool = use_mp
         self.init_screwmpc()
 
     def add_waypoint(self, waypoint: tuple[np.ndarray, np.ndarray]) -> None:
@@ -148,38 +151,15 @@ class ScrewMPCAgent:
         acc_bound = screwmpc.BOUND(lb_acc, ub_acc)
         vel_bound = screwmpc.BOUND(lb_v, ub_v)
 
-        self.motion_generator = pandamg.PandaScrewMotionGenerator(
+        generator = (
+            pandamg.PandaScrewMpMotionGenerator
+            if self._use_mp
+            else pandamg.PandaScrewMotionGenerator
+        )
+        self.motion_generator = generator(
             n_p, n_c, Q, R, vel_bound, acc_bound, jerk_bound
         )
-        self.kinematics = robots.FrankaEmikaPandaRobot.kinematics()  # pylint: disable=no-member
 
-
-class ScrewMPCMpAgent(ScrewMPCAgent):
-    """Basic dm-robotics agent that uses a screwmpc motion generator which incorporates manipulability."""
-
-    def init_screwmpc(self) -> None:
-        """Initializes the screwmpc motion generator."""
-        n_p = 50  # prediction horizon, can be tuned;
-        n_c = 10  # control horizon, can be tuned
-        R = 10e-3  # weight matirix
-        Q = 10e9  # weight matrix
-
-        ub_jerk = np.array([8500.0, 8500.0, 8500.0, 4500.0, 4500.0, 4500.0])
-        lb_jerk = -ub_jerk.copy()
-
-        ub_acc = np.array([17.0, 17.0, 17.0, 9.0, 9.0, 9.0])
-        lb_acc = -ub_acc.copy()
-
-        ub_v = np.array([2.5, 2.5, 2.5, 3.0, 3.0, 3.0])
-        lb_v = -ub_v.copy()
-
-        jerk_bound = screwmpc.BOUND(lb_jerk, ub_jerk)
-        acc_bound = screwmpc.BOUND(lb_acc, ub_acc)
-        vel_bound = screwmpc.BOUND(lb_v, ub_v)
-
-        self.motion_generator = pandamg.PandaScrewMpMotionGenerator(
-            n_p, n_c, Q, R, vel_bound, acc_bound, jerk_bound
-        )
         self.kinematics = robots.FrankaEmikaPandaRobot.kinematics()  # pylint: disable=no-member
 
 
