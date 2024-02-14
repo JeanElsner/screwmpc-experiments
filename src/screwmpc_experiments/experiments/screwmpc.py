@@ -124,17 +124,7 @@ class ScrewMPCAgent:
         """Checks whether the agent has reached the current goal."""
         if self._goal is None:
             return False
-        return bool(
-            np.linalg.norm(
-                (
-                    self.kinematics.fkm(timestep.observation["panda_joint_pos"])
-                    - self._goal
-                )
-                .norm()
-                .vec8()
-            )
-            < self._goal_tolerance
-        )
+        return float(timestep.reward) > -self._goal_tolerance
 
     def init_screwmpc(self) -> None:
         """Initializes the screwmpc motion generator."""
@@ -234,7 +224,9 @@ class SceneEffector(effector.Effector):  # type: ignore[misc]
 
     def set_control(self, physics: mjcf.Physics, command: np.ndarray) -> None:
         minus45deg = tr.euler_to_quat([0, 0, -np.pi / 4])
-        self._goal.set_pose(physics, command[:3], tr.quat_mul(command[3:], minus45deg))
+        pos = command[:3]
+        pos[0] -= 0.041
+        self._goal.set_pose(physics, pos, tr.quat_mul(command[3:], minus45deg))
 
 
 def goal_reward(observation: spec_utils.ObservationValue) -> float:

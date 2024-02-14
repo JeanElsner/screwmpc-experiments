@@ -20,6 +20,10 @@ from ..experiments import screwmpc
 logging.basicConfig(level=logging.INFO, force=True)
 
 
+def _float_array(arg: str) -> list[float]:
+    return [float(x) for x in arg.split()]
+
+
 def main() -> None:
     """
     Main function of this experiment.
@@ -39,7 +43,7 @@ def main() -> None:
         "--goal-tolerance",
         type=float,
         help="norm between two dual quaternion poses to consider a goal reached (default: 0.05)",
-        default=0.05,
+        default=0.01,
     )
     parser.add_argument(
         "-m",
@@ -50,9 +54,19 @@ def main() -> None:
     parser.add_argument(
         "--sclerp", type=float, help="sclerp coefficient (default: 0.1)", default=0.1
     )
+    parser.add_argument(
+        "--position-delta",
+        type=_float_array,
+        default=[0.1, 0.3, 0.3],
+        help="position delta for random poses (default: 0.1 0.3 0.3)",
+    )
+    parser.add_argument(
+        "--rotation-delta",
+        type=_float_array,
+        default=[45, 45, 45],
+        help="rotation delta for random poses (default: 45 45 45)",
+    )
     args = parser.parse_args()
-
-    logging.basicConfig(level=logging.INFO, force=True)
 
     robot_params = params.RobotParams(
         robot_ip=args.robot_ip, actuation=arm_constants.Actuation.JOINT_VELOCITY
@@ -92,11 +106,27 @@ def main() -> None:
 
         # Generate 10 random poses within these bounds
         # given as x, y, z (linear) and X, Y, Z (angular, euler angles)
+        dp = args.position_delta
+        dr = np.deg2rad(args.rotation_delta)
         min_pose_bounds = np.array(
-            [0.5, -0.3, 0.7, 0.75 * np.pi, -0.25 * np.pi, -0.25 * np.pi]
+            [
+                0.3 - dp[0],
+                0 - dp[1],
+                0.5 - dp[2],
+                np.pi - dr[0],
+                0 - dr[1],
+                0.25 * np.pi - dr[2],
+            ]
         )
         max_pose_bounds = np.array(
-            [0.1, 0.3, 0.1, 1.25 * np.pi, 0.25 * np.pi / 2, 0.25 * np.pi]
+            [
+                0.3 + dp[0],
+                0 + dp[1],
+                0.5 + dp[2],
+                np.pi + dr[0],
+                0 + dr[1],
+                0.25 * np.pi + dr[2],
+            ]
         )
         poses = screwmpc.generate_random_poses(
             10, min_pose_bounds, max_pose_bounds, rng
