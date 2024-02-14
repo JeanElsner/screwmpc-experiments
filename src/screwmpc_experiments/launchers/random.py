@@ -27,24 +27,28 @@ def main() -> None:
     """
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--robot-ip", default=None, type=str, help="Robot IP or hostname for HIL."
+        "--robot-ip", default=None, type=str, help="robot IP or hostname for HIL"
     )
     parser.add_argument(
-        "--no-gui", action="store_true", help="Deactivate visualization."
+        "--no-gui", action="store_true", help="deactivate visualization"
     )
     parser.add_argument(
-        "--seed", "-s", type=int, help="Set the random seed (default: 1).", default=1
+        "--seed", type=int, help="set the random seed (default: 1)", default=1
     )
     parser.add_argument(
         "--goal-tolerance",
         type=float,
-        help="Norm between two dual quaternion poses to consider a goal reached (default: 0.05)",
+        help="norm between two dual quaternion poses to consider a goal reached (default: 0.05)",
         default=0.05,
     )
     parser.add_argument(
-        "--mp",
+        "-m",
+        "--manipulability",
         action="store_true",
-        help="Use agent with manipulability constraints.",
+        help="use manipulability maximizing",
+    )
+    parser.add_argument(
+        "--sclerp", type=float, help="sclerp coefficient (default: 0.1)", default=0.1
     )
     args = parser.parse_args()
 
@@ -58,9 +62,7 @@ def main() -> None:
     arena = empty.Arena()
     arena.attach(goal)
 
-    panda_env = environment.PandaEnvironment(
-        robot_params, arena, control_timestep=0.016
-    )
+    panda_env = environment.PandaEnvironment(robot_params, arena, control_timestep=0.02)
 
     # Add extra sensors for flange and goal reference sites
     # to make them observable to the agent and preprocessors.
@@ -100,7 +102,9 @@ def main() -> None:
             10, min_pose_bounds, max_pose_bounds, rng
         )
 
-        agent = screwmpc.ScrewMPCAgent(env.action_spec(), args.goal_tolerance, args.mp)
+        agent = screwmpc.ScrewMPCAgent(
+            env.action_spec(), args.goal_tolerance, args.sclerp, args.manipulability
+        )
         for p in poses:
             agent.add_waypoint(p)
 

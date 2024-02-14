@@ -68,10 +68,15 @@ class ScrewMPCAgent:
     """Basic dm-robotics agent that uses a screwmpc motion generator."""
 
     def __init__(
-        self, spec: specs.BoundedArray, goal_tolerance: float, use_mp: bool = False
+        self,
+        spec: specs.BoundedArray,
+        goal_tolerance: float,
+        sclerp: float,
+        use_mp: bool = False,
     ) -> None:
         self._spec = spec
         self._goal_tolerance = goal_tolerance
+        self._sclerp = sclerp
         self._waypoints: list[tuple[np.ndarray, np.ndarray]] = []
         self._goal: dqrobotics.DQ | None = None
         self._x_goal: tuple[np.ndarray, np.ndarray] | None = None
@@ -157,7 +162,7 @@ class ScrewMPCAgent:
             else pandamg.PandaScrewMotionGenerator
         )
         self.motion_generator = generator(
-            n_p, n_c, Q, R, vel_bound, acc_bound, jerk_bound
+            n_p, n_c, Q, R, vel_bound, acc_bound, jerk_bound, sclerp=self._sclerp
         )
 
         self.kinematics = robots.FrankaEmikaPandaRobot.kinematics()  # pylint: disable=no-member
