@@ -66,6 +66,9 @@ def main() -> None:
         default=[45, 45, 45],
         help="rotation delta for random poses (default: 45 45 45)",
     )
+    parser.add_argument(
+        "-n", type=int, help="number of random poses (default: 10)", default=10
+    )
     args = parser.parse_args()
 
     robot_params = params.RobotParams(
@@ -129,7 +132,7 @@ def main() -> None:
             ]
         )
         poses = screwmpc.generate_random_poses(
-            10, min_pose_bounds, max_pose_bounds, rng
+            args.n, min_pose_bounds, max_pose_bounds, rng
         )
 
         agent = screwmpc.ScrewMPCAgent(
