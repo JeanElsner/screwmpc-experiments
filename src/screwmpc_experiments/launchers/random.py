@@ -77,8 +77,8 @@ def main() -> None:
         default="obs.csv",
     )
     parser.add_argument(
-        "--rt",
         "--realtime-priority",
+        "--rt",
         action="store_true",
         help="set the robot control thread priority to realtime",
     )
