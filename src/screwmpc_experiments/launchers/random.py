@@ -69,6 +69,13 @@ def main() -> None:
     parser.add_argument(
         "-n", type=int, help="number of random poses (default: 10)", default=10
     )
+    parser.add_argument(
+        "-o",
+        "--output",
+        type=str,
+        help="filename of the csv output (default: obs.csv)",
+        default="obs.csv",
+    )
     args = parser.parse_args()
 
     robot_params = params.RobotParams(
@@ -101,6 +108,9 @@ def main() -> None:
                 specs.Array((1,), dtype=np.float32),
             ),
             rewards.ComputeReward(screwmpc.goal_reward),
+            observation_transforms.RetainObservations(
+                ["time", "manipulability", "panda_joint_pos"]
+            ),
         ]
     )
 
@@ -136,7 +146,11 @@ def main() -> None:
         )
 
         agent = screwmpc.ScrewMPCAgent(
-            env.action_spec(), args.goal_tolerance, args.sclerp, args.manipulability
+            env.action_spec(),
+            args.goal_tolerance,
+            args.sclerp,
+            args.manipulability,
+            args.output,
         )
         for p in poses:
             agent.add_waypoint(p)

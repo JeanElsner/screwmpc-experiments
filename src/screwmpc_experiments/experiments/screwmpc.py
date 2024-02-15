@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import contextlib
+import csv
 import logging
 import pathlib
 
@@ -73,6 +73,7 @@ class ScrewMPCAgent:
         goal_tolerance: float,
         sclerp: float,
         use_mp: bool = False,
+        output_file: str = "obs.csv",
     ) -> None:
         self._spec = spec
         self._goal_tolerance = goal_tolerance
@@ -81,6 +82,9 @@ class ScrewMPCAgent:
         self._goal: dqrobotics.DQ | None = None
         self._x_goal: tuple[np.ndarray, np.ndarray] | None = None
         self._use_mp: bool = use_mp
+        self._obs: list[dict[str, np.ndarray]] = []
+        self._output_file = output_file
+        self._finished = False
         self.init_screwmpc()
 
     def add_waypoint(self, waypoint: tuple[np.ndarray, np.ndarray]) -> None:
@@ -104,20 +108,27 @@ class ScrewMPCAgent:
         """
         action = np.zeros(shape=self._spec.shape, dtype=self._spec.dtype)
         if self._goal is not None and self._x_goal is not None:
+            # set joint velocities to mpc output
             action[:7] = self.motion_generator.step(
                 timestep.observation["panda_joint_pos"], self._goal
             )
+            # set goal object pose
             action[-7:-4] = self._x_goal[0]
             action[-4:] = self._x_goal[1]
         if self.at_goal(timestep):
             logger.info("Goal reached.")
             self._goal = None
-        if self._goal is None:
-            with contextlib.suppress(IndexError):
-                self._x_goal = self._waypoints.pop(0)
-                self._goal = pose_to_dq(self._x_goal)
-                logger.info("Tracking new goal: %s", self._goal)
-
+        if not self._finished:
+            self._obs.append(timestep.observation)
+            if self._goal is None:
+                try:
+                    self._x_goal = self._waypoints.pop(0)
+                    self._goal = pose_to_dq(self._x_goal)
+                    logger.info("Tracking new goal: %s", self._goal)
+                except IndexError:
+                    self._finished = True
+                    logger.info("Saving observations to %s", self._output_file)
+                    save_obs(self._obs, self._output_file)
         return action
 
     def at_goal(self, timestep: dm_env.TimeStep) -> bool:
@@ -242,3 +253,34 @@ def manipulability(timestep: timestep_preprocessor.PreprocessorTimestep) -> np.n
     return np.array(
         [panda_model.manipulability(observation["panda_joint_pos"])], dtype=np.float32
     )
+
+
+def save_obs(obs: list[dict[str, np.ndarray]], output_file: str) -> None:
+    """Saves a list of observations to a CSV file."""
+    # Extracting field names from the first row
+    first_row = obs[0]
+    fieldnames = []
+    for key, value in first_row.items():
+        if np.ndim(value) > 0:
+            if len(value) > 1:
+                fieldnames.extend([f"{key}_{i+1}" for i in range(len(value))])
+            else:
+                fieldnames.append(key)
+        else:
+            fieldnames.append(key)
+    # Writing to CSV
+    with pathlib.Path(output_file).open("w", encoding="utf-8") as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in obs:
+            new_row = {}
+            for key, value in row.items():
+                if np.ndim(value) > 0:
+                    if len(value) > 1:
+                        for i, v in enumerate(value):
+                            new_row[f"{key}_{i+1}"] = v
+                    else:
+                        new_row[key] = value[0]
+                else:
+                    new_row[key] = value.item()  # Convert 0-d array to scalar
+            writer.writerow(new_row)
