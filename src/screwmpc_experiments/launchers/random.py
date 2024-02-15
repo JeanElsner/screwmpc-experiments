@@ -76,10 +76,18 @@ def main() -> None:
         help="filename of the csv output (default: obs.csv)",
         default="obs.csv",
     )
+    parser.add_argument(
+        "--rt",
+        "--realtime-priority",
+        action="store_true",
+        help="set the robot control thread priority to realtime",
+    )
     args = parser.parse_args()
 
     robot_params = params.RobotParams(
-        robot_ip=args.robot_ip, actuation=arm_constants.Actuation.JOINT_VELOCITY
+        robot_ip=args.robot_ip,
+        actuation=arm_constants.Actuation.JOINT_VELOCITY,
+        enforce_realtime=args.realtime_priority,
     )
 
     goal = screwmpc.Goal()
