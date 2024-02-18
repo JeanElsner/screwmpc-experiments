@@ -33,10 +33,12 @@ T_F_EE: spatialmath.SE3 = spatialmath.SE3(0, 0, 0.1034) * spatialmath.SE3.Rz(
 
 
 def pose_to_se3(pose: tuple[np.ndarray, np.ndarray]) -> spatialmath.SE3:
+    """Transforms pose consisting of 3-vector and unit quaternion to spatialmath.SE3."""
     return spatialmath.SE3(pose[0]) * spatialmath.UnitQuaternion(pose[1]).SE3()
 
 
 def se3_to_pose(se3: spatialmath.SE3) -> tuple[np.ndarray, np.ndarray]:
+    """Transforms spatialmath.SE3 to pose consisting of 3-vector and unit quaternion."""
     return (se3.t, spatialmath.UnitQuaternion(se3).vec)
 
 
