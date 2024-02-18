@@ -11,7 +11,10 @@ import pathlib
 import numpy as np
 from dm_control import composer
 from dm_env import specs
-from dm_robotics.agentflow.preprocessors import observation_transforms, rewards
+from dm_robotics.agentflow.preprocessors import (
+    observation_transforms,
+    rewards,
+)
 from dm_robotics.moma.sensors import site_sensor
 from dm_robotics.panda import arm_constants, environment, run_loop
 from dm_robotics.panda import parameters as params
@@ -21,14 +24,10 @@ from ..experiments import screwmpc
 logging.basicConfig(level=logging.INFO, force=True)
 
 
-def _float_array(arg: str) -> list[float]:
-    return [float(x) for x in arg.split()]
-
-
 def main() -> None:
     """
     Main function of this experiment.
-    Run from the terminal by executing `screwmpc-random`.
+    Run from the terminal by executing `screwmpc-pivoting`.
     """
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -36,9 +35,6 @@ def main() -> None:
     )
     parser.add_argument(
         "--no-gui", action="store_true", help="deactivate visualization"
-    )
-    parser.add_argument(
-        "--seed", type=int, help="set the random seed (default: 1)", default=1
     )
     parser.add_argument(
         "--goal-tolerance",
@@ -56,21 +52,6 @@ def main() -> None:
         "--sclerp", type=float, help="sclerp coefficient (default: 0.1)", default=0.1
     )
     parser.add_argument(
-        "--position-delta",
-        type=_float_array,
-        default=[0.1, 0.3, 0.3],
-        help="position delta for random poses (default: 0.1 0.3 0.3)",
-    )
-    parser.add_argument(
-        "--rotation-delta",
-        type=_float_array,
-        default=[45, 45, 45],
-        help="rotation delta for random poses (default: 45 45 45)",
-    )
-    parser.add_argument(
-        "-n", type=int, help="number of random poses (default: 10)", default=10
-    )
-    parser.add_argument(
         "-o",
         "--output",
         type=str,
@@ -78,8 +59,8 @@ def main() -> None:
         default="obs.csv",
     )
     parser.add_argument(
-        "--realtime-priority",
         "--rt",
+        "--realtime-priority",
         action="store_true",
         help="set the robot control thread priority to realtime",
     )
@@ -88,7 +69,7 @@ def main() -> None:
     robot_params = params.RobotParams(
         robot_ip=args.robot_ip,
         actuation=arm_constants.Actuation.JOINT_VELOCITY,
-        enforce_realtime=args.realtime_priority,
+        enforce_realtime=args.rt,
     )
 
     goal = screwmpc.Goal()
@@ -97,6 +78,9 @@ def main() -> None:
     arena.attach(goal)
 
     panda_env = environment.PandaEnvironment(robot_params, arena, control_timestep=0.02)
+
+    box = screwmpc.Box(pos=[0.3, 0, 0.3])
+    panda_env.add_props([box])
 
     # Add extra sensors for flange and goal reference sites
     # to make them observable to the agent and preprocessors.
@@ -119,42 +103,12 @@ def main() -> None:
             ),
             rewards.ComputeReward(screwmpc.goal_reward),
             observation_transforms.RetainObservations(
-                ["time", "manipulability", "panda_joint_pos"]
+                ["time", "manipulability", "panda_joint_pos", "panda_tcp_pos"]
             ),
         ]
     )
 
     with panda_env.build_task_environment() as env:
-        rng = np.random.RandomState(seed=args.seed)  # pylint: disable=no-member
-
-        # Generate 10 random poses within these bounds centered around the starting pose
-        # given as x, y, z (linear) and X, Y, Z (angular, euler angles)
-        dp = args.position_delta
-        dr = np.deg2rad(args.rotation_delta)
-        min_pose_bounds = np.array(
-            [
-                0.307 - dp[0],
-                0 - dp[1],
-                0.487 + 0.1034 - dp[2],
-                np.pi - dr[0],
-                0 - dr[1],
-                0.25 * np.pi - dr[2],
-            ]
-        )
-        max_pose_bounds = np.array(
-            [
-                0.307 + dp[0],
-                0 + dp[1],
-                0.487 + 0.1034 + dp[2],
-                np.pi + dr[0],
-                0 + dr[1],
-                0.25 * np.pi + dr[2],
-            ]
-        )
-        poses = screwmpc.generate_random_poses(
-            args.n, min_pose_bounds, max_pose_bounds, rng
-        )
-
         agent = screwmpc.ScrewMPCAgent(
             env.action_spec(),
             args.goal_tolerance,
@@ -162,11 +116,9 @@ def main() -> None:
             args.manipulability,
             args.output,
         )
-        agent.add_waypoints(poses)
-
         # Run the environment and agent either in headless mode or inside the GUI.
         if not args.no_gui:
-            app = screwmpc.ScrewMPCApp(title="ScrewMPC Random Experiment")
+            app = screwmpc.ScrewMPCApp("Screw MPC Pivoting Experiment", box=box)
             app.launch(env, policy=agent.step)
             app.shutdown()
         else:

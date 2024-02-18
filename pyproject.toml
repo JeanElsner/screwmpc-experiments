@@ -30,11 +30,13 @@ classifiers = [
 dynamic = ["version"]
 dependencies = [
   "dm-robotics-panda >= 0.4.7",
-  "screwmpcpy >= 0.2.2",
+  "screwmpcpy >= 0.2.7",
 ]
 
 [project.scripts]
 screwmpc-random = "screwmpc_experiments.launchers.random:main"
+screwmpc-pivoting = "screwmpc_experiments.launchers.pivoting:main"
+screwmpc-trigger-grasp = "screwmpc_experiments.launchers.trigger_grasp:main"
 
 [project.optional-dependencies]
 test = [
