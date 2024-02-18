@@ -18,10 +18,10 @@ def homogeneous_to_waypoint(
     """Computes waypoint arguments given pose as homogeneous transform.
 
     You may use this function to apply any necessary transforms."""
-    # TODO
-    # the frame seems to be neither flange nor TCP, please investigate
+    # TODO: the frame seems to be neither flange nor TCP, please investigate
     se3 = spatialmath.SE3(T, check=False)
-    se3 *= spatialmath.SE3(0.05, 0, 0.02) * spatialmath.SE3.Rz(45, unit="deg")
+    # we apply a 45 degree rotation around the *local* z-axis
+    se3 *= spatialmath.SE3.Rz(45, unit="deg")  # this fixes the orientation
     return (se3.t.tolist(), spatialmath.UnitQuaternion(se3).vec.tolist(), grasp)
 
 
