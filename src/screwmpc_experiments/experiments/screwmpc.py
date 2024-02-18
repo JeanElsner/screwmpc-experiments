@@ -19,7 +19,7 @@ from dm_env import specs
 from dm_robotics.agentflow import spec_utils
 from dm_robotics.agentflow.preprocessors import timestep_preprocessor
 from dm_robotics.geometry import pose_distribution
-from dm_robotics.moma import effector, prop
+from dm_robotics.moma import effector, prop, subtask_env
 from dm_robotics.panda import utils
 from dm_robotics.transformations import transformations as tr
 from dqrobotics import robots
@@ -394,6 +394,14 @@ class ScrewMPCApp(utils.ApplicationWithPlot):  # type: ignore[misc]
         self._box.mjcf_model.find("geom", "body").quat[:] = pose[1]
         logger.info("Updating bounding box object")
         self._restart_runtime()
+
+    def launch(
+        self,
+        environment_loader: subtask_env.SubTaskEnvironment,
+        policy: typing.Callable[[dm_env.TimeStep], np.ndarray] | None = None,
+    ) -> None:
+        super().launch(environment_loader, policy)
+        self.shutdown()
 
     def shutdown(self) -> None:
         """Shut down the server and close any open connections."""

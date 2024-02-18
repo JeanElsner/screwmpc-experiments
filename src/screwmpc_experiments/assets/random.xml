@@ -1,0 +1,23 @@
+<mujoco model="arena">
+  <visual>
+    <global azimuth="180" elevation="-22.5" />
+  </visual>
+  <asset>
+    <texture name="skybox" type="skybox" builtin="gradient" rgb1=".4 .6 .8" rgb2="0 0 0"
+            width="800" height="800" mark="random" markrgb="1 1 1"/>
+    <texture name="grid" type="2d" builtin="checker" rgb1=".1 .2 .3" rgb2=".2 .3 .4" width="300" height="300" mark="edge" markrgb=".2 .3 .4"/>
+    <material name="grid" texture="grid" texrepeat="1 1" texuniform="true" reflectance=".2"/>
+  </asset>
+  <visual>
+    <headlight ambient=".4 .4 .4" diffuse=".8 .8 .8" specular="0.1 0.1 0.1"/>
+    <map znear=".01"/>
+    <quality shadowsize="2048"/>
+  </visual>
+  <default>
+    <geom solimp="0.9 0.95 0.001 0.5 2" solref="0.005 1" condim="6" />
+  </default>
+  <worldbody>
+    <geom name="floor" type="plane" size="2 2 2" conaffinity="1" material="grid"/>
+    <light directional='true' diffuse='.7 .7 .7' pos='1 .1 2' dir='0 -.1 -2' specular='.3 .3 .3' castshadow='true'/>
+  </worldbody>
+</mujoco>

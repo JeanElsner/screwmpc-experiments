@@ -44,7 +44,7 @@ def main() -> None:
     size = [0.19498751 / 2, 0.06656145 / 2, 0.20757379 / 2]
 
     # height of the table computed as pos[2]-size[2]/2
-    # see src/screwmpc_experiments/assets/scene.xml for reference
+    # see src/screwmpc_experiments/assets/pivoting.xml for reference
 
     # Make sure arguments to the server proxy are lists,
     # numpy arrays are not marshable.
