@@ -30,7 +30,7 @@ classifiers = [
 dynamic = ["version"]
 dependencies = [
   "dm-robotics-panda >= 0.4.7",
-  "screwmpcpy >= 0.2.7",
+  "screwmpcpy >= 0.2.8",
 ]
 
 [project.scripts]
