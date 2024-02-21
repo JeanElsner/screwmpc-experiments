@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+from panda_py import constants
 
 from screwmpc_experiments.experiments import screwmpc
 
@@ -30,9 +31,11 @@ rng = np.random.RandomState(0)
 
 
 def test_se3_pose_transform():
-    poses = screwmpc.generate_random_poses(100, min_pose_bounds, max_pose_bounds, rng)
+    poses = screwmpc.generate_random_poses(
+        100, constants.JOINT_POSITION_START, min_pose_bounds, max_pose_bounds, rng
+    )
     for pose in poses:
-        se3 = screwmpc.pose_to_se3(pose)
+        se3 = screwmpc.pose_to_se3((pose[0], pose[1]))
         pose_2 = screwmpc.se3_to_pose(se3)
         se3_2 = screwmpc.pose_to_se3(pose_2)
 
