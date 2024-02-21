@@ -56,6 +56,7 @@ def pose_to_dq(pose: tuple[np.ndarray, np.ndarray, float]) -> dqrobotics.DQ:
 
 def generate_random_poses(
     n: int,
+    q_init: np.ndarray,
     min_pose_bounds: np.ndarray,
     max_pose_bounds: np.ndarray,
     random_state: np.random.RandomState,  # pylint: disable=no-member
@@ -64,7 +65,7 @@ def generate_random_poses(
     Generate random poses within the given bounds.
 
     Compute random poses within the given bounds. The poses
-    are checked using inverse kinematics.
+    are checked using case consistent inverse kinematics.
     """
     gripper_pose_dist = pose_distribution.UniformPoseDistribution(
         min_pose_bounds=min_pose_bounds,
@@ -75,9 +76,10 @@ def generate_random_poses(
         pose = gripper_pose_dist.sample_pose(random_state)
         se3 = pose_to_se3(pose)
         se3 *= T_F_EE
-        q = panda_py.ik(se3)
+        q = panda_py.ik(se3, q_init)
         if not np.any(np.isnan(q)):
             poses.append((pose[0], pose[1], 1))
+            q_init = q.copy()
     return poses
 
 

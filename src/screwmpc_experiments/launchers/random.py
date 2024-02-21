@@ -8,7 +8,6 @@ import logging
 import pathlib
 
 import numpy as np
-from dm_robotics.panda import run_loop
 
 from ..experiments import common, screwmpc
 
@@ -45,7 +44,7 @@ def main() -> None:
     )
     xml_path = pathlib.Path(__file__).parent / ".." / "assets" / "random.xml"
     args = parser.parse_args()
-    panda_env = common.create_environment(xml_path, args)
+    panda_env, robot_params = common.create_environment(xml_path, args)
 
     with panda_env.build_task_environment() as env:
         rng = np.random.RandomState(seed=args.seed)  # pylint: disable=no-member
@@ -75,7 +74,7 @@ def main() -> None:
             ]
         )
         poses = screwmpc.generate_random_poses(
-            args.n, min_pose_bounds, max_pose_bounds, rng
+            args.n, robot_params.joint_positions, min_pose_bounds, max_pose_bounds, rng
         )
         agent = common.create_agent(env, args)
         agent.add_waypoints(poses)
@@ -85,6 +84,6 @@ def main() -> None:
             app = screwmpc.ScrewMPCApp(title="ScrewMPC Random Experiment")
             app.launch(env, policy=agent.step)
         else:
-            run_loop.run(env, agent, [], max_steps=1000, real_time=True)
+            common.run(env, agent)
 
     agent.shutdown()
