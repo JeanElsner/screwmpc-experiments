@@ -13,6 +13,7 @@ concurrency:
 
 env:
   FORCE_COLOR: 3
+  MUJOCO_GL: osmesa
 
 jobs:
   pre-commit:
