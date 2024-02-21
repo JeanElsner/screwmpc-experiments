@@ -7,8 +7,6 @@ from __future__ import annotations
 import logging
 import pathlib
 
-from dm_robotics.panda import run_loop
-
 from ..experiments import common, screwmpc
 
 logging.basicConfig(level=logging.INFO, force=True)
@@ -21,7 +19,7 @@ def main() -> None:
     """
     args = common.create_argparser().parse_args()
     xml_path = pathlib.Path(__file__).parent / ".." / "assets" / "pivoting.xml"
-    panda_env = common.create_environment(xml_path, args)
+    panda_env, __ = common.create_environment(xml_path, args)
 
     box = screwmpc.Box(pos=[0.3, 0, 0.3])
     panda_env.add_props([box])
@@ -33,6 +31,6 @@ def main() -> None:
             app = screwmpc.ScrewMPCApp("Screw MPC Pivoting Experiment", box=box)
             app.launch(env, policy=agent.step)
         else:
-            run_loop.run(env, agent, [], max_steps=1000, real_time=True)
+            common.run(env, agent)
 
     agent.shutdown()
