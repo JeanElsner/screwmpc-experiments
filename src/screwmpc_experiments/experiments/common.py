@@ -51,7 +51,13 @@ def create_environment(
             ),
             rewards.ComputeReward(screwmpc.goal_reward),
             observation_transforms.RetainObservations(
-                ["time", "manipulability", "panda_joint_pos"]
+                [
+                    "time",
+                    "manipulability",
+                    "panda_joint_pos",
+                    "panda_tcp_pos",
+                    "panda_tcp_quat",
+                ]
             ),
         ]
     )
