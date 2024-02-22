@@ -97,6 +97,12 @@ def create_argparser() -> argparse.ArgumentParser:
         action="store_true",
         help="set the robot control thread priority to realtime",
     )
+    parser.add_argument(
+        "--grasp-time",
+        type=float,
+        help="Time to wait for a grasp to complete",
+        default=2.0,
+    )
     return parser
 
 
@@ -110,6 +116,7 @@ def create_agent(
         args.sclerp,
         args.manipulability,
         args.output,
+        grasp_time=args.grasp_time,
     )
 
 

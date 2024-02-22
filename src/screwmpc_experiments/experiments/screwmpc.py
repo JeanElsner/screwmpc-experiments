@@ -93,6 +93,7 @@ class ScrewMPCAgent:
         sclerp: float,
         use_mp: bool = False,
         output_file: str = "obs.csv",
+        grasp_time: float = 2.0,
     ) -> None:
         self._spec = spec
         self._goal_tolerance = goal_tolerance
@@ -105,6 +106,7 @@ class ScrewMPCAgent:
         self._output_file = output_file
         self._finished = False
         self._dead_time = 0.0
+        self._grasp_time = grasp_time
         self.init_screwmpc()
         self.init_xmlrpc()
 
@@ -164,7 +166,7 @@ class ScrewMPCAgent:
                     and x_goal[2] != self._x_goal[2]
                 ):
                     logger.info("Grasping")
-                    self._dead_time = timestep.observation["time"][0] + 1
+                    self._dead_time = timestep.observation["time"][0] + self._grasp_time
                 else:
                     logger.info("Tracking new goal: %s", self._goal)
                 self._x_goal = x_goal
