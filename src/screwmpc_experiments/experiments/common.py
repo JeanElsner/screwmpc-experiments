@@ -5,6 +5,7 @@ import logging
 import pathlib
 
 import numpy as np
+import panda_py
 from dm_control import composer
 from dm_env import specs
 from dm_robotics.agentflow.preprocessors import observation_transforms, rewards
@@ -12,6 +13,7 @@ from dm_robotics.moma import subtask_env
 from dm_robotics.moma.sensors import site_sensor
 from dm_robotics.panda import arm_constants, environment, run_loop
 from dm_robotics.panda import parameters as params
+from panda_py import constants
 
 from . import screwmpc
 
@@ -20,8 +22,13 @@ def create_environment(
     xml_path: pathlib.Path, args: argparse.Namespace
 ) -> tuple[environment.PandaEnvironment, params.RobotParams]:
     """Creates the basic environment for the experiments."""
+    if not args.move_to_start and args.robot_ip is not None:
+        q = panda_py.Panda(args.robot_ip).q
+    else:
+        q = constants.JOINT_POSITION_START
     robot_params = params.RobotParams(
         robot_ip=args.robot_ip,
+        joint_positions=q,
         actuation=arm_constants.Actuation.JOINT_VELOCITY,
         enforce_realtime=args.realtime_priority,
     )
@@ -108,6 +115,11 @@ def create_argparser() -> argparse.ArgumentParser:
         type=float,
         help="Time to wait for a grasp to complete",
         default=2.0,
+    )
+    parser.add_argument(
+        "--move-to-start",
+        action="store_true",
+        help="move the robot into the start position in the beginning",
     )
     return parser
 
