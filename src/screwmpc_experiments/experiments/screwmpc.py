@@ -23,7 +23,8 @@ from dm_robotics.moma import effector, prop, subtask_env
 from dm_robotics.panda import utils
 from dm_robotics.transformations import transformations as tr
 from dqrobotics import robots
-from screwmpcpy import pandamg, screwmpc
+from panda_py import constants
+from screwmpcpy import dqutil, pandamg, screwmpc
 
 panda_model = rtb.models.Panda()
 logger = logging.getLogger("screwmpc")
@@ -109,24 +110,6 @@ class ScrewMPCAgent:
         self._grasp_time = grasp_time
         self.init_screwmpc()
         self.init_xmlrpc()
-
-    def add_waypoints(
-        self, waypoints: list[tuple[np.ndarray, np.ndarray, float]] | None = None
-    ) -> None:
-        """Adds a waypoint to the buffer.
-
-        Waypoints will be moved through consecutively using the
-        screwmpc motion generator.
-
-        Args:
-          waypoints: List of waypoints to buffer representing goal poses. Waypoints are
-            given as a tuple containing a 3-vector, a unit quaternion and a float.
-        """
-        if waypoints is None:
-            return
-        self._waypoints.extend(waypoints)
-        logger.info("Added %d new waypoints to buffer", len(waypoints))
-        self._finished = False
 
     def step(self, timestep: dm_env.TimeStep) -> np.ndarray:
         """Computes an action given a timestep observation.
@@ -236,8 +219,70 @@ class ScrewMPCAgent:
         )
         self.server.register_function(self.add_waypoints)
         self.server.register_function(self.get_observation)
+        self.server.register_function(self.check_ik)
         self._thread = threading.Thread(target=self.server.serve_forever)
         self._thread.start()
+
+    def add_waypoints(
+        self, waypoints: list[tuple[np.ndarray, np.ndarray, float]] | None = None
+    ) -> None:
+        """Adds a waypoint to the buffer.
+
+        Waypoints will be moved through consecutively using the
+        screwmpc motion generator.
+
+        Args:
+          waypoints: List of waypoints to buffer representing goal poses. Waypoints are
+            given as a tuple containing a 3-vector, a unit quaternion and a float.
+        """
+        if waypoints is None:
+            return
+        self._waypoints.extend(waypoints)
+        logger.info("Added %d new waypoints to buffer", len(waypoints))
+        self._finished = False
+
+    def _check_ik(
+        self, pose: tuple[np.ndarray, spatialmath.UnitQuaternion], n_subsample: int = 10
+    ) -> bool:
+        se3 = pose_to_se3(pose)
+        se3 *= T_F_EE
+        qs_7 = np.linspace(
+            constants.JOINT_LIMITS_LOWER[6],
+            constants.JOINT_LIMITS_UPPER[6],
+            n_subsample,
+        )
+        for q_7 in qs_7:
+            qs = panda_py.ik_full(se3, q_7=q_7)
+            for q in qs:
+                if not np.any(np.isnan(q)):
+                    return True
+        return False
+
+    def check_ik(
+        self,
+        waypoints: list[tuple[list[float], list[float]]] | None = None,
+        n_points: int = 3,
+    ) -> bool:
+        """Check inverse kinematics for a list of waypoints."""
+        if waypoints is None:
+            return True
+        preprocessed = []
+        for i, wp in enumerate(waypoints):
+            if i > 0 and wp[0] == waypoints[i - 1][0] and wp[1] == waypoints[i - 1][1]:
+                continue
+            preprocessed.append((np.array(wp[0]), spatialmath.UnitQuaternion(wp[1])))
+        poses = dqutil.interpolate_waypoints(preprocessed, n_points, False)
+        logger.info(
+            "Checking inverse kinematics on %s poses interpolated to %d poses",
+            len(preprocessed),
+            len(poses),
+        )
+        for p in poses:
+            if not self._check_ik(p):
+                logger.warning("IK check failed")
+                return False
+        logger.info("IK check successful")
+        return True
 
     def shutdown(self) -> None:
         """Shut down the server and close any open connections."""
@@ -455,7 +500,7 @@ def _make_block_model(
         mass=0.050,
         solref=solref,
         solimp=solimp,
-        condim=1,
+        condim=4,
         rgba=color,
     )
     del box
