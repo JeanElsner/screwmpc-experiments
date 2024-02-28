@@ -216,7 +216,11 @@ def main() -> None:
     waypoints.append(homogeneous_to_waypoint(grasp, 1))
     waypoints.append(homogeneous_to_waypoint(grasp, 0))  # same pose, grasp only
     waypoints.append(homogeneous_to_waypoint(pivot, 0))
-    # waypoints.append(homogeneous_to_waypoint(pivot, 1))  # same pose, grasp only
+    waypoints.append(homogeneous_to_waypoint(pivot, 1))  # same pose, grasp only
 
     with client.ServerProxy(f"http://{args.hostname}:9000/") as proxy:
-        proxy.add_waypoints(waypoints)  # add waypoints to sim
+        # check ik of subsampled trajectory
+        if proxy.check_ik(waypoints):
+            proxy.add_waypoints(waypoints)  # add waypoints to sim
+        else:
+            logging.warning("IK check failed.")
