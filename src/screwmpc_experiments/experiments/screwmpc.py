@@ -221,12 +221,21 @@ class ScrewMPCAgent:
         )
         self.kinematics = robots.FrankaEmikaPandaRobot.kinematics()  # pylint: disable=no-member
 
+    def get_observation(self) -> dict[str, float | list[float]]:
+        """Get the last environment observation."""
+        obs = self._obs[-1]
+        for k, v in obs.items():
+            if isinstance(v, np.ndarray):
+                obs[k] = v.tolist()
+        return obs
+
     def init_xmlrpc(self) -> None:
         """Initiate server to handle remote procedure calls."""
         self.server = server.SimpleXMLRPCServer(
             ("0.0.0.0", 9000), allow_none=True, logRequests=False
         )
-        self.server.register_function(self.add_waypoints, "add_waypoints")
+        self.server.register_function(self.add_waypoints)
+        self.server.register_function(self.get_observation)
         self._thread = threading.Thread(target=self.server.serve_forever)
         self._thread.start()
 
@@ -310,10 +319,7 @@ class SceneEffector(effector.Effector):  # type: ignore[misc]
         return "scene"
 
     def set_control(self, physics: mjcf.Physics, command: np.ndarray) -> None:
-        # minus45deg = tr.euler_to_quat([0, 0, -np.pi / 4])
         pos = command[:3]
-        # pos[0] -= 0.041
-        # self._goal.set_pose(physics, pos, tr.quat_mul(command[3:-1], minus45deg))
         self._goal.set_pose(physics, pos, command[3:-1])
         physics.bind(self._actuator).ctrl = command[-1]
 

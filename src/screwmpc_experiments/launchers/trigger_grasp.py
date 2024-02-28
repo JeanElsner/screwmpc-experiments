@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import logging
 from xmlrpc import client
 
 import numpy as np
 import spatialmath
+
+logging.basicConfig(level=logging.INFO)
 
 # this is the transform between flange and TCP of the Panda
 T_F_EE: spatialmath.SE3 = spatialmath.SE3(0, 0, 0.1034) * spatialmath.SE3.Rz(
@@ -41,8 +44,11 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # pose is direct output of the task planner (=cheezit cracker box)
+    with client.ServerProxy(f"http://{args.hostname}:9000/") as proxy:
+        # get last observation
+        logging.info("Received observation %s", proxy.get_observation())
 
+    # pose is direct output of the task planner
     se3 = spatialmath.SE3(
         np.array(
             [
@@ -74,9 +80,6 @@ def main() -> None:
         )
     )
     pos, quat = (se3.t, spatialmath.UnitQuaternion(se3).vec)
-
-    # pos = [0.2067777, -0.36626508, 0.28314002]
-    # quat = [0.8329, 0.0000, 0.0000, 0.5535]
     pose = (pos.tolist(), quat.tolist())
     # size is computed based on the bounding box vertices
     size = [0.1100, 0.0350, 0.0850]
