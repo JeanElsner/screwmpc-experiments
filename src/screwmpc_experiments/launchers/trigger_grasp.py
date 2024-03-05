@@ -39,11 +39,6 @@ def main() -> None:
         help="Hostname of the computer running the simulation",
         default="localhost",
     )
-    parser.add_argument(
-        "--no-gui",
-        action="store_true",
-        help="Target an experiment without running GUI.",
-    )
     args = parser.parse_args()
 
     joint_positions = []
