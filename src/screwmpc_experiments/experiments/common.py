@@ -125,7 +125,8 @@ def create_argparser() -> argparse.ArgumentParser:
 
 
 def create_agent(
-    env: subtask_env.SubTaskEnvironment, args: argparse.Namespace
+    env: subtask_env.SubTaskEnvironment,
+    args: argparse.Namespace,
 ) -> screwmpc.ScrewMPCAgent:
     """Creates a screwmpc.ScrewMPCAgent from a moma subtask environment and arguments."""
     return screwmpc.ScrewMPCAgent(

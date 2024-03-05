@@ -85,5 +85,3 @@ def main() -> None:
             app.launch(env, policy=agent.step)
         else:
             common.run(env, agent)
-
-    agent.shutdown()

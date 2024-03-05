@@ -4,6 +4,7 @@ import csv
 import logging
 import pathlib
 import threading
+import time
 import typing
 from xmlrpc import server
 
@@ -22,7 +23,6 @@ from dm_robotics.geometry import pose_distribution
 from dm_robotics.moma import effector, prop, subtask_env
 from dm_robotics.panda import utils
 from dm_robotics.transformations import transformations as tr
-from dqrobotics import robots
 from panda_py import constants
 from screwmpcpy import dqutil, pandamg, screwmpc
 
@@ -43,7 +43,7 @@ def se3_to_pose(se3: spatialmath.SE3) -> tuple[np.ndarray, np.ndarray]:
     return (se3.t, spatialmath.UnitQuaternion(se3).vec)
 
 
-def pose_to_dq(pose: tuple[np.ndarray, np.ndarray, float]) -> dqrobotics.DQ:
+def pose_to_dq(pose: tuple[np.ndarray, np.ndarray, int]) -> dqrobotics.DQ:
     """Computes a unit dual quaternion from a pose.
 
     Args:
@@ -61,7 +61,7 @@ def generate_random_poses(
     min_pose_bounds: np.ndarray,
     max_pose_bounds: np.ndarray,
     random_state: np.random.RandomState,  # pylint: disable=no-member
-) -> list[tuple[np.ndarray, np.ndarray, float]]:
+) -> list[tuple[np.ndarray, np.ndarray, int]]:
     """
     Generate random poses within the given bounds.
 
@@ -98,18 +98,15 @@ class ScrewMPCAgent:
     ) -> None:
         self._spec = spec
         self._goal_tolerance = goal_tolerance
-        self._sclerp = sclerp
-        self._waypoints: list[tuple[np.ndarray, np.ndarray, float]] = []
+        self._waypoints: list[tuple[np.ndarray, np.ndarray, int]] = []
         self._goal: dqrobotics.DQ | None = None
         self._x_goal: tuple[np.ndarray, np.ndarray, float] | None = None
-        self._use_mp: bool = use_mp
         self._obs: list[dict[str, np.ndarray]] = []
         self._output_file = output_file
         self._finished = False
         self._dead_time = 0.0
         self._grasp_time = grasp_time
-        self.init_screwmpc()
-        self.init_xmlrpc()
+        self.motion_generator = create_screwmpc(sclerp, use_mp)
 
     def step(self, timestep: dm_env.TimeStep) -> np.ndarray:
         """Computes an action given a timestep observation.
@@ -167,43 +164,6 @@ class ScrewMPCAgent:
             return False
         return float(timestep.reward) > -self._goal_tolerance
 
-    def init_screwmpc(self) -> None:
-        """Initializes the screwmpc motion generator."""
-        n_p = 50  # prediction horizon, can be tuned;
-        n_c = 10  # control horizon, can be tuned
-        R = 10e-3  # weight matirix
-        Q = 10e9  # weight matrix
-
-        ub_jerk = np.array([8500.0, 8500.0, 8500.0, 4500.0, 4500.0, 4500.0])
-        lb_jerk = -ub_jerk.copy()
-
-        ub_acc = np.array([17.0, 17.0, 17.0, 9.0, 9.0, 9.0])
-        lb_acc = -ub_acc.copy()
-
-        ub_v = np.array([2.5, 2.5, 2.5, 3.0, 3.0, 3.0])
-        lb_v = -ub_v.copy()
-
-        jerk_bound = screwmpc.BOUND(lb_jerk, ub_jerk)
-        acc_bound = screwmpc.BOUND(lb_acc, ub_acc)
-        vel_bound = screwmpc.BOUND(lb_v, ub_v)
-
-        generator = (
-            pandamg.PandaScrewMpMotionGenerator
-            if self._use_mp
-            else pandamg.PandaScrewMotionGenerator
-        )
-        self.motion_generator = generator(
-            n_p,
-            n_c,
-            Q,
-            R,
-            vel_bound,
-            acc_bound,
-            jerk_bound,
-            sclerp=self._sclerp,
-        )
-        self.kinematics = robots.FrankaEmikaPandaRobot.kinematics()  # pylint: disable=no-member
-
     def get_observation(self) -> dict[str, float | list[float]]:
         """Get the last environment observation."""
         obs = self._obs[-1]
@@ -212,19 +172,8 @@ class ScrewMPCAgent:
                 obs[k] = v.tolist()
         return obs
 
-    def init_xmlrpc(self) -> None:
-        """Initiate server to handle remote procedure calls."""
-        self.server = server.SimpleXMLRPCServer(
-            ("0.0.0.0", 9000), allow_none=True, logRequests=False
-        )
-        self.server.register_function(self.add_waypoints)
-        self.server.register_function(self.get_observation)
-        self.server.register_function(self.check_ik)
-        self._thread = threading.Thread(target=self.server.serve_forever)
-        self._thread.start()
-
     def add_waypoints(
-        self, waypoints: list[tuple[np.ndarray, np.ndarray, float]] | None = None
+        self, waypoints: list[tuple[np.ndarray, np.ndarray, int]] | None = None
     ) -> None:
         """Adds a waypoint to the buffer.
 
@@ -241,54 +190,180 @@ class ScrewMPCAgent:
         logger.info("Added %d new waypoints to buffer", len(waypoints))
         self._finished = False
 
+
+class RPCInterface:
+    """Remote procedure call interface to interact with the simulation."""
+
+    def __init__(
+        self,
+        agent: ScrewMPCAgent,
+        env: subtask_env.SubTaskEnvironment,
+        collision_env: subtask_env.SubTaskEnvironment,
+        gui: ScrewMPCApp | None = None,
+    ) -> None:
+        self._agent = agent
+        self._env = env
+        self._collision_env = collision_env
+        self._gui = gui
+        self.init_xmlrpc()
+
+    def _check_collision(
+        self, q: np.ndarray, check_box: bool = True
+    ) -> tuple[bool, str]:
+        physics = self._collision_env.physics
+        next(iter(self._collision_env.task.robots)).position_arm_joints(physics, q)
+        physics.forward()
+
+        for contact in physics.data.contact:
+            geom1_name: str = physics.model.id2name(contact.geom1, "geom")
+            geom2_name: str = physics.model.id2name(contact.geom2, "geom")
+            if (
+                geom1_name.startswith("panda/")
+                or geom2_name.startswith("panda/")
+                and not (
+                    geom1_name == "panda/panda_gripper/panda_leftfinger_collision"
+                    and geom2_name == "panda/panda_gripper/panda_rightfinger_collision"
+                )
+                and not (
+                    geom2_name == "panda/panda_gripper/panda_leftfinger_collision"
+                    and geom1_name == "panda/panda_gripper/panda_rightfinger_collision"
+                )
+            ) and (check_box ^ ("box/body" not in [geom1_name, geom2_name])):
+                return False, f"{geom1_name} in collision with {geom2_name}"
+        return True, ""
+
+    def check_box_collision(
+        self,
+        pose: tuple[np.ndarray, np.ndarray, int] | None = None,
+        n_subsamples: int = 16,
+    ) -> tuple[bool, str, list[float]]:
+        """Checks for collision between the robot and the bounding box."""
+        if pose is None:
+            return True, "", []
+        tic = time.time()
+        result = self._check_ik(pose, n_subsamples)
+        toc = time.time() - tic
+        if result[0]:
+            logger.info("found collision free ik solution after %.3fs", toc)
+        else:
+            logger.error("did not find collision free ik solution after %.3fs", toc)
+        return result
+
     def _check_ik(
-        self, pose: tuple[np.ndarray, spatialmath.UnitQuaternion], n_subsample: int = 10
-    ) -> bool:
-        se3 = pose_to_se3(pose)
+        self,
+        pose: tuple[np.ndarray, np.ndarray, int],
+        n_subsample: int,
+    ) -> tuple[bool, str, list[float]]:
+        se3 = pose_to_se3((pose[0], pose[1]))
         se3 *= T_F_EE
         qs_7 = np.linspace(
             constants.JOINT_LIMITS_LOWER[6],
             constants.JOINT_LIMITS_UPPER[6],
             n_subsample,
         )
+        collision_result = (True, "")
         for q_7 in qs_7:
             qs = panda_py.ik_full(se3, q_7=q_7)
             for q in qs:
                 if not np.any(np.isnan(q)):
-                    return True
-        return False
+                    collision_result = self._check_collision(q, True)
+                    if collision_result[0]:
+                        return *collision_result, q.tolist()
+        if not collision_result[0]:
+            return *collision_result, []
+        return False, f"no IK solution found for pose {pose}", []
 
-    def check_ik(
+    def check_feasibility(
         self,
-        waypoints: list[tuple[list[float], list[float]]] | None = None,
+        waypoints: list[tuple[list[float], list[float], int]] | None = None,
+        q_init: list[float] | None = None,
         n_points: int = 3,
-    ) -> bool:
-        """Check inverse kinematics for a list of waypoints."""
+    ) -> tuple[bool, str]:
+        """Check inverse kinematics, collisions amnd reachability for a list of waypoints."""
+        result = True, ""
         if waypoints is None:
-            return True
+            return result
+        if q_init is None:
+            result = False, "initial joint positions required"
+        tic = time.time()
         preprocessed = []
         for i, wp in enumerate(waypoints):
             if i > 0 and wp[0] == waypoints[i - 1][0] and wp[1] == waypoints[i - 1][1]:
                 continue
-            preprocessed.append((np.array(wp[0]), spatialmath.UnitQuaternion(wp[1])))
-        poses = dqutil.interpolate_waypoints(preprocessed, n_points, False)
-        logger.info(
-            "Checking inverse kinematics on %s poses interpolated to %d poses",
-            len(preprocessed),
-            len(poses),
+            preprocessed.append(
+                (np.array(wp[0]), spatialmath.UnitQuaternion(wp[1]), wp[2])
+            )
+        motion_generator = create_screwmpc(0.5, False)
+        stop = False
+        for p in preprocessed:
+            if stop:
+                break
+            traj, success = compute_trajectory(
+                motion_generator, q_init, pose_to_dq(p), dt=0.2
+            )
+            if not success:
+                result = False, f"screwmpc failed to reach waypoint {p}"
+                break
+            for i in np.round(np.linspace(0, len(traj) - 1, n_points + 2)).astype(
+                np.int8
+            )[1:]:
+                collision_result = self._check_collision(traj[i], False)
+                if not collision_result[0]:
+                    result = collision_result
+                    stop = True
+                    break
+            q_init = traj[-1]
+        if result[0]:
+            logger.info("feasibility check successful after %.3fs", time.time() - tic)
+        else:
+            logger.error("feasibility check failed after %.3fs", time.time() - tic)
+        return result
+
+    def reload_box(
+        self,
+        pose: tuple[np.ndarray, np.ndarray] | None = None,
+        size: np.ndarray | None = None,
+    ) -> None:
+        """Resize and reposition the bounding box object (requires resetting the simulation)."""
+        logger.info("Updating bounding box object")
+        self._reload_box(self._env, pose, size)
+        if self._gui is not None:
+            self._gui._restart_runtime()  # pylint: disable=protected-access
+        self._reload_box(self._collision_env, pose, size)
+        self._collision_env.reset()
+
+    def _reload_box(
+        self,
+        env: subtask_env.SubTaskEnvironment,
+        pose: tuple[np.ndarray, np.ndarray] | None = None,
+        size: np.ndarray | None = None,
+    ) -> None:
+        """Reload the bounding box object with new size and pose."""
+        if pose is None or size is None:
+            return
+        env.task.arena.mjcf_model.find("geom", "box/body").size[:] = size
+        env.task.arena.mjcf_model.find("geom", "box/body").pos[:] = pose[0]
+        env.task.arena.mjcf_model.find("geom", "box/body").quat[:] = pose[1]
+
+    def init_xmlrpc(self) -> None:
+        """Initiate server to handle remote procedure calls."""
+        self.server = server.SimpleXMLRPCServer(
+            ("0.0.0.0", 9000), allow_none=True, logRequests=False
         )
-        for p in poses:
-            if not self._check_ik(p):
-                logger.warning("IK check failed")
-                return False
-        logger.info("IK check successful")
-        return True
+        self.server.register_function(self._agent.add_waypoints)
+        self.server.register_function(self._agent.get_observation)
+        self.server.register_function(self.check_feasibility)
+        self.server.register_function(self.reload_box)
+        self.server.register_function(self.check_box_collision)
+        self._thread = threading.Thread(target=self.server.serve_forever)
+        self._thread.start()
 
     def shutdown(self) -> None:
         """Shut down the server and close any open connections."""
         self.server.shutdown()
         self.server.socket.close()
         self._thread.join()
+        self._collision_env.close()
 
 
 class Goal(prop.Prop):  # type: ignore[misc]
@@ -505,3 +580,85 @@ def _make_block_model(
     )
     del box
     return mjcf_root
+
+
+def compute_trajectory(
+    motion_generator: pandamg.PandaScrewMotionGenerator,
+    q_init: np.ndarray,
+    x_d: dqrobotics.DQ,
+    dt: float = 0.001,
+    linear_threshold: float = 0.05,
+    angular_threshold: float = 5,
+    max_steps: int = 100,
+) -> tuple[list[np.ndarray], bool]:
+    """Offline computation of trajectory from `q_init` to `x_d`."""
+    q_robot: np.ndarray = q_init.copy()
+    joint_angles: list[np.ndarray] = [q_init]
+    step: int = 0
+    done: bool = False
+    goal_pose = dqutil.dq_to_pose(x_d)
+
+    while not done:
+        try:
+            dq = motion_generator.step(q_robot, x_d)
+            q_robot += dq * dt
+        except ValueError as e:
+            logger.error(e)
+            return joint_angles, False
+        joint_angles.append(q_robot.copy())
+        step += 1
+
+        pose = panda_py.fk(q_robot)
+        se3 = spatialmath.SE3(pose)
+        se3 = spatialmath.SE3(0.041, 0, 0) * se3 * T_F_EE.inv()
+
+        linear_error = np.sqrt(np.linalg.norm(goal_pose[0] - se3.t))
+        angular_error = np.rad2deg(
+            spatialmath.SO3.angdist(
+                spatialmath.UnitQuaternion(goal_pose[1]).SO3(), se3.R
+            )
+        )
+        done = (
+            linear_error <= linear_threshold and angular_error < angular_threshold
+        ) or step >= max_steps
+    return (
+        joint_angles,
+        linear_error <= linear_threshold and angular_error < angular_threshold,
+    )
+
+
+def create_screwmpc(sclerp: float, use_mp: bool) -> pandamg.PandaScrewMotionGenerator:
+    """Creates a screwmpc motion generator."""
+    n_p = 50  # prediction horizon, can be tuned;
+    n_c = 10  # control horizon, can be tuned
+    R = 10e-3  # weight matirix
+    Q = 10e9  # weight matrix
+
+    ub_jerk = np.array([8500.0, 8500.0, 8500.0, 4500.0, 4500.0, 4500.0])
+    lb_jerk = -ub_jerk.copy()
+
+    ub_acc = np.array([17.0, 17.0, 17.0, 9.0, 9.0, 9.0])
+    lb_acc = -ub_acc.copy()
+
+    ub_v = np.array([2.5, 2.5, 2.5, 3.0, 3.0, 3.0])
+    lb_v = -ub_v.copy()
+
+    jerk_bound = screwmpc.BOUND(lb_jerk, ub_jerk)
+    acc_bound = screwmpc.BOUND(lb_acc, ub_acc)
+    vel_bound = screwmpc.BOUND(lb_v, ub_v)
+
+    generator = (
+        pandamg.PandaScrewMpMotionGenerator
+        if use_mp
+        else pandamg.PandaScrewMotionGenerator
+    )
+    return generator(
+        n_p,
+        n_c,
+        Q,
+        R,
+        vel_bound,
+        acc_bound,
+        jerk_bound,
+        sclerp=sclerp,
+    )

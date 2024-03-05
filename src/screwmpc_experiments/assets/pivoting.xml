@@ -20,9 +20,9 @@
     <geom name="floor" type="plane" size="2 2 2" conaffinity="1" material="grid"/>
     <light directional='true' diffuse='.7 .7 .7' pos='1 .1 2' dir='0 -.1 -2' specular='.3 .3 .3' castshadow='true'/>
     <body>
-      <geom type="box" pos=".3 0 0.17" size=".2 .5 0.01" /> <!-- surface at 0.17m + 0.01m = 0.18m-->
-      <geom type="box" pos=".3 .3 0.085 " size=".15 .15 0.085" />
-      <geom type="box" pos=".3 -.3 0.085 " size=".15 .15 0.085" />
+      <geom type="box" name="table_top" pos=".3 0 0.17" size=".2 .5 0.01" /> <!-- surface at 0.17m + 0.01m = 0.18m-->
+      <geom type="box" name="table_column_a" pos=".3 .3 0.085 " size=".15 .15 0.085" />
+      <geom type="box" name="table_column_b" pos=".3 -.3 0.085 " size=".15 .15 0.085" />
     </body>
   </worldbody>
 </mujoco>
