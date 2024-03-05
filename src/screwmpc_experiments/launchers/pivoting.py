@@ -20,6 +20,8 @@ def main() -> None:
     args = common.create_argparser().parse_args()
     xml_path = pathlib.Path(__file__).parent / ".." / "assets" / "pivoting.xml"
     panda_env, __ = common.create_environment(xml_path, args)
+    collision_env, __ = common.create_environment(xml_path, args)
+    collision_env.add_props([screwmpc.Box(pos=[0.3, 0, 0.3])])
 
     box = screwmpc.Box(pos=[0.3, 0, 0.3])
     panda_env.add_props([box])
@@ -29,8 +31,14 @@ def main() -> None:
         # Run the environment and agent either in headless mode or inside the GUI.
         if not args.no_gui:
             app = screwmpc.ScrewMPCApp("Screw MPC Pivoting Experiment", box=box)
+            rpc = screwmpc.RPCInterface(
+                agent, env, collision_env.build_task_environment(), gui=app
+            )
             app.launch(env, policy=agent.step)
         else:
+            rpc = screwmpc.RPCInterface(
+                agent, env, collision_env.build_task_environment()
+            )
             common.run(env, agent)
 
-    agent.shutdown()
+    rpc.shutdown()
