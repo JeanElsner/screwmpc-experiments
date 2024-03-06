@@ -20,6 +20,7 @@ def main() -> None:
     args = common.create_argparser().parse_args()
     xml_path = pathlib.Path(__file__).parent / ".." / "assets" / "pivoting.xml"
     panda_env, __ = common.create_environment(xml_path, args)
+    args.robot_ip = None
     collision_env, __ = common.create_environment(xml_path, args)
     collision_env.add_props([screwmpc.Box(pos=[0.3, 0, 0.3])])
 
