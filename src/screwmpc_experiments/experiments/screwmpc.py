@@ -107,6 +107,8 @@ class ScrewMPCAgent:
         self._dead_time = 0.0
         self._grasp_time = grasp_time
         self.motion_generator = create_screwmpc(sclerp, use_mp)
+        self.sclerp = sclerp
+        self.use_mp = use_mp
 
     def step(self, timestep: dm_env.TimeStep) -> np.ndarray:
         """Computes an action given a timestep observation.
@@ -211,7 +213,9 @@ class RPCInterface:
         self, q: np.ndarray, check_box: bool = True
     ) -> tuple[bool, str]:
         physics = self._collision_env.physics
-        next(iter(self._collision_env.task.robots)).position_arm_joints(physics, q)
+        robot = next(iter(self._collision_env.task.robots))
+        robot.position_arm_joints(physics, q)
+        robot.gripper.set_joint_positions(physics, [0.04, 0.04])
         physics.forward()
 
         for contact in physics.data.contact:
@@ -329,6 +333,9 @@ class RPCInterface:
         self._reload_box(self._env, pose, size)
         if self._gui is not None:
             self._gui._restart_runtime()  # pylint: disable=protected-access
+        self._agent.motion_generator = create_screwmpc(
+            self._agent.sclerp, self._agent.use_mp
+        )
         self._reload_box(self._collision_env, pose, size)
         self._collision_env.reset()
 
@@ -572,7 +579,7 @@ def _make_block_model(
         pos=pos,
         quat=quat,
         size=size,
-        mass=0.050,
+        mass=0.10,
         solref=solref,
         solimp=solimp,
         condim=4,

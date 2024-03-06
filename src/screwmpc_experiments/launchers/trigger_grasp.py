@@ -223,7 +223,7 @@ def main() -> None:
         if result:
             logging.info("feasibility check passed")
             if ik_result is not None:
-                logging.info("ik solution: %s", joint_positions)
+                logging.info("ik solution: %s", ik_result)
         else:
             logging.error(message)
 
