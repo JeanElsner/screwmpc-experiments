@@ -648,7 +648,7 @@ def create_screwmpc(sclerp: float, use_mp: bool) -> pandamg.PandaScrewMotionGene
     vel_bound = screwmpc.BOUND(lb_v, ub_v)
 
     generator = (
-        pandamg.PandaScrewMpMotionGenerator
+        pandamg.PandaScrewMpRGMotionGenerator
         if use_mp
         else pandamg.PandaScrewMotionGenerator
     )
