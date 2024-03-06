@@ -215,7 +215,7 @@ class RPCInterface:
         physics = self._collision_env.physics
         robot = next(iter(self._collision_env.task.robots))
         robot.position_arm_joints(physics, q)
-        physics.bind(robot.gripper.joints).qpos[:] = [0.04, 0.04]
+        robot.gripper.set_joint_positions(physics, [0.04, 0.04])
         physics.forward()
 
         for contact in physics.data.contact:
