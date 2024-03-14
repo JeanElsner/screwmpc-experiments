@@ -99,6 +99,7 @@ class ScrewMPCAgent:
         self._spec = spec
         self._goal_tolerance = goal_tolerance
         self._waypoints: list[tuple[np.ndarray, np.ndarray, int]] = []
+        self._intermediate: list[tuple[np.ndarray, np.ndarray, int]] | None = None
         self._goal: dqrobotics.DQ | None = None
         self._x_goal: tuple[np.ndarray, np.ndarray, float] | None = None
         self._obs: list[dict[str, np.ndarray]] = []
@@ -126,8 +127,13 @@ class ScrewMPCAgent:
             )
         if self._x_goal is not None:
             # set goal object pose
-            action[-8:] = np.r_[self._x_goal[0], self._x_goal[1], self._x_goal[2]]
+            action[8:16] = np.r_[self._x_goal[0], self._x_goal[1], self._x_goal[2]]
             action[7] = self._x_goal[2]
+        if self._intermediate is not None:
+            for i in range(10):
+                action[i * 7 + 16 : i * 7 + 16 + 7] = np.r_[
+                    self._intermediate[i][0], self._intermediate[i][1].vec
+                ]
         if self.at_goal(timestep):
             logger.info("Goal reached.")
             self._goal = None
@@ -141,6 +147,18 @@ class ScrewMPCAgent:
             try:
                 x_goal = self._waypoints.pop(0)
                 self._goal = pose_to_dq(x_goal)
+
+                joint_positions = panda_py.fk(timestep.observation["panda_joint_pos"])
+                start = spatialmath.SE3(joint_positions)
+                start = spatialmath.SE3(0.041, 0, 0) * start * T_F_EE.inv()
+
+                self._intermediate = dqutil.interpolate_waypoints(
+                    [
+                        (start.t, spatialmath.UnitQuaternion(start)),
+                        (x_goal[0], spatialmath.UnitQuaternion(x_goal[1])),
+                    ],
+                    10,
+                )[1:-1]
                 if (
                     self._x_goal is not None
                     and np.all(x_goal[0] == self._x_goal[0])
@@ -152,7 +170,7 @@ class ScrewMPCAgent:
                 else:
                     logger.info("Tracking new goal: %s", self._goal)
                 self._x_goal = x_goal
-                action[-8:] = np.r_[self._x_goal[0], self._x_goal[1], self._x_goal[2]]
+                action[8:16] = np.r_[self._x_goal[0], self._x_goal[1], self._x_goal[2]]
             except IndexError:
                 self._finished = True
                 self._dead_time = 0
@@ -376,7 +394,7 @@ class RPCInterface:
 class Goal(prop.Prop):  # type: ignore[misc]
     """Intangible prop representing the goal pose."""
 
-    def _build(self) -> None:  # pylint: disable=arguments-differ
+    def _build(self, color: tuple[float, float, float, float] = (1, 0, 0, 0.3)) -> None:  # pylint: disable=arguments-differ
         xml_path = (
             pathlib.Path(pathlib.Path(dm_robotics.panda.__file__).parent)
             / "assets"
@@ -385,7 +403,7 @@ class Goal(prop.Prop):  # type: ignore[misc]
         )
         mjcf_root = mjcf.from_path(xml_path)
         for geom in mjcf_root.find_all("geom"):
-            geom.rgba = (1, 0, 0, 0.3)
+            geom.rgba = color
             geom.conaffinity = 0
             geom.contype = 0
         rotated_root = mjcf.RootElement()
@@ -400,11 +418,17 @@ class SceneEffector(effector.Effector):  # type: ignore[misc]
     Effector used to update the state of the scene.
     """
 
-    def __init__(self, goal: Goal) -> None:
+    def __init__(self, goal: Goal, intermediate: list[Goal]) -> None:
         self._goal = goal
+        self._intermediate = intermediate
         self._actuator = goal.mjcf_model.find(
             "actuator", "panda_hand/panda_hand_actuator"
         )
+        self._intermediate_actuator = []
+        for i in self._intermediate:
+            self._intermediate_actuator.append(
+                i.mjcf_model.find("actuator", "panda_hand/panda_hand_actuator")
+            )
         self._spec = None
 
     def close(self) -> None:
@@ -419,10 +443,10 @@ class SceneEffector(effector.Effector):  # type: ignore[misc]
         del physics
         if self._spec is None:
             self._spec = specs.BoundedArray(
-                (8,),
+                (78,),
                 np.float32,
-                np.full((8,), -10, dtype=np.float32),
-                np.full((8,), 10, dtype=np.float32),
+                np.full((78,), -10, dtype=np.float32),
+                np.full((78,), 10, dtype=np.float32),
                 "\t".join(
                     [
                         f"{self.prefix}_{n}"
@@ -436,6 +460,7 @@ class SceneEffector(effector.Effector):  # type: ignore[misc]
                             "goal_qz",
                             "goal_grasp",
                         ]
+                        + [f"intermediate_{i}" for i in range(70)]
                     ]
                 ),
             )
@@ -447,8 +472,13 @@ class SceneEffector(effector.Effector):  # type: ignore[misc]
 
     def set_control(self, physics: mjcf.Physics, command: np.ndarray) -> None:
         pos = command[:3]
-        self._goal.set_pose(physics, pos, command[3:-1])
-        physics.bind(self._actuator).ctrl = command[-1]
+        self._goal.set_pose(physics, pos, command[3:7])
+        physics.bind(self._actuator).ctrl = command[7]
+
+        for i in range(10):
+            subcommand = command[(i + 1) * 7 + 1 : (i + 1) * 7 + 8]
+            self._intermediate[i].set_pose(physics, subcommand[:3], subcommand[3:7])
+            physics.bind(self._intermediate_actuator).ctrl = command[7]
 
 
 def goal_reward(observation: spec_utils.ObservationValue) -> float:
@@ -505,46 +535,10 @@ class ScrewMPCApp(utils.ApplicationWithPlot):  # type: ignore[misc]
         title: str = "ScrewMPC Experiment",
         width: int = 1024,
         height: int = 768,
-        box: prop.Block = None,
     ):
         super().__init__(title, width, height)
         self._viewer.render_settings.toggle_rendering_flag(0)
         self._viewer.render_settings.toggle_rendering_flag(2)
-        self._box = box
-        self.server = server.SimpleXMLRPCServer(
-            ("0.0.0.0", 9001), allow_none=True, logRequests=False
-        )
-        self.server.register_function(self.reload_box, "reload_box")
-        self._thread = threading.Thread(target=self.server.serve_forever)
-        self._thread.start()
-
-    def reload_box(
-        self,
-        pose: tuple[np.ndarray, np.ndarray] | None = None,
-        size: np.ndarray | None = None,
-    ) -> None:
-        """Reload the bounding box object with new size and pose."""
-        if self._box is None or pose is None or size is None:
-            return
-        self._box.mjcf_model.find("geom", "body").size[:] = size
-        self._box.mjcf_model.find("geom", "body").pos[:] = pose[0]
-        self._box.mjcf_model.find("geom", "body").quat[:] = pose[1]
-        logger.info("Updating bounding box object")
-        self._restart_runtime()
-
-    def launch(
-        self,
-        environment_loader: subtask_env.SubTaskEnvironment,
-        policy: typing.Callable[[dm_env.TimeStep], np.ndarray] | None = None,
-    ) -> None:
-        super().launch(environment_loader, policy)
-        self.shutdown()
-
-    def shutdown(self) -> None:
-        """Shut down the server and close any open connections."""
-        self.server.shutdown()
-        self.server.socket.close()
-        self._thread.join()
 
 
 class Box(prop.Prop):  # type: ignore[misc]

@@ -35,6 +35,10 @@ def create_environment(
     goal = screwmpc.Goal()
     arena = composer.Arena(xml_path=xml_path)
     arena.attach(goal)
+    intermediate = []
+    for __ in range(10):
+        intermediate.append(screwmpc.Goal())
+        arena.attach(intermediate[-1])
 
     panda_env = environment.PandaEnvironment(robot_params, arena, control_timestep=0.02)
 
@@ -49,7 +53,7 @@ def create_environment(
     )
 
     panda_env.add_extra_sensors([flange_sensor, goal_sensor])
-    panda_env.add_extra_effectors([screwmpc.SceneEffector(goal)])
+    panda_env.add_extra_effectors([screwmpc.SceneEffector(goal, intermediate)])
     panda_env.add_timestep_preprocessors(
         [
             observation_transforms.AddObservation(

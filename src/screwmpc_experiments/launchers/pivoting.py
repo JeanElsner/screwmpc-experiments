@@ -31,7 +31,7 @@ def main() -> None:
         agent = common.create_agent(env, args)
         # Run the environment and agent either in headless mode or inside the GUI.
         if not args.no_gui:
-            app = screwmpc.ScrewMPCApp("Screw MPC Pivoting Experiment", box=box)
+            app = screwmpc.ScrewMPCApp("Screw MPC Pivoting Experiment")
             rpc = screwmpc.RPCInterface(
                 agent, env, collision_env.build_task_environment(), gui=app
             )
