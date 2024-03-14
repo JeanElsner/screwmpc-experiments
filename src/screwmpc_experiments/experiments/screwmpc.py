@@ -132,7 +132,7 @@ class ScrewMPCAgent:
 
             joint_positions = panda_py.fk(timestep.observation["panda_joint_pos"])
             start = spatialmath.SE3(joint_positions)
-            start = spatialmath.SE3(0.041, 0, 0) * start * T_F_EE.inv()
+            start *= T_F_EE.inv()
 
             intermediate = dqutil.interpolate_waypoints(
                 [

@@ -32,12 +32,13 @@ def create_environment(
         actuation=arm_constants.Actuation.JOINT_VELOCITY,
         enforce_realtime=args.realtime_priority,
     )
-    goal = screwmpc.Goal()
+    goal = screwmpc.Goal(color=(0, 1, 0, 0.3))
     arena = composer.Arena(xml_path=xml_path)
     arena.attach(goal)
     intermediate = []
-    for __ in range(10):
-        intermediate.append(screwmpc.Goal())
+    blend = np.linspace(0, 1, 10)
+    for i in range(10):
+        intermediate.append(screwmpc.Goal(color=(1 - blend[i], blend[i], 0, 0.3)))
         arena.attach(intermediate[-1])
 
     panda_env = environment.PandaEnvironment(robot_params, arena, control_timestep=0.02)
