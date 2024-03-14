@@ -129,10 +129,22 @@ class ScrewMPCAgent:
             # set goal object pose
             action[8:16] = np.r_[self._x_goal[0], self._x_goal[1], self._x_goal[2]]
             action[7] = self._x_goal[2]
-        if self._intermediate is not None:
+
+            joint_positions = panda_py.fk(timestep.observation["panda_joint_pos"])
+            start = spatialmath.SE3(joint_positions)
+            start = spatialmath.SE3(0.041, 0, 0) * start * T_F_EE.inv()
+
+            intermediate = dqutil.interpolate_waypoints(
+                [
+                    (start.t, spatialmath.UnitQuaternion(start)),
+                    (self._x_goal[0], spatialmath.UnitQuaternion(self._x_goal[1])),
+                ],
+                10,
+            )[1:-1]
+
             for i in range(10):
                 action[i * 7 + 16 : i * 7 + 16 + 7] = np.r_[
-                    self._intermediate[i][0], self._intermediate[i][1].vec
+                    intermediate[i][0], intermediate[i][1].vec
                 ]
         if self.at_goal(timestep):
             logger.info("Goal reached.")
@@ -148,17 +160,17 @@ class ScrewMPCAgent:
                 x_goal = self._waypoints.pop(0)
                 self._goal = pose_to_dq(x_goal)
 
-                joint_positions = panda_py.fk(timestep.observation["panda_joint_pos"])
-                start = spatialmath.SE3(joint_positions)
-                start = spatialmath.SE3(0.041, 0, 0) * start * T_F_EE.inv()
+                # joint_positions = panda_py.fk(timestep.observation["panda_joint_pos"])
+                # start = spatialmath.SE3(joint_positions)
+                # start = spatialmath.SE3(0.041, 0, 0) * start * T_F_EE.inv()
 
-                self._intermediate = dqutil.interpolate_waypoints(
-                    [
-                        (start.t, spatialmath.UnitQuaternion(start)),
-                        (x_goal[0], spatialmath.UnitQuaternion(x_goal[1])),
-                    ],
-                    10,
-                )[1:-1]
+                # self._intermediate = dqutil.interpolate_waypoints(
+                #     [
+                #         (start.t, spatialmath.UnitQuaternion(start)),
+                #         (x_goal[0], spatialmath.UnitQuaternion(x_goal[1])),
+                #     ],
+                #     10,
+                # )[1:-1]
                 if (
                     self._x_goal is not None
                     and np.all(x_goal[0] == self._x_goal[0])
