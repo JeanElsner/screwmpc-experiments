@@ -65,6 +65,8 @@ def create_environment(
                     "panda_joint_pos",
                     "panda_tcp_pos",
                     "panda_tcp_quat",
+                    "panda_force",
+                    "panda_torque",
                 ]
             ),
         ]
