@@ -122,6 +122,8 @@ class ScrewMPCAgent:
         # set gripper action
         if self._goal is not None:
             # set joint velocities to mpc output
+            # if self.motion_generator.dqerror is not None:
+            #     self.motion_generator._sclerp = np.clip(10*np.linalg.norm(dqrobotics.vec8(self.motion_generator.dqerror)), 0.1, .5)
             action[:7] = self.motion_generator.step(
                 timestep.observation["panda_joint_pos"], self._goal
             )
@@ -149,6 +151,7 @@ class ScrewMPCAgent:
         if self.at_goal(timestep):
             logger.info("Goal reached.")
             self._goal = None
+            self.motion_generator.reset()
         if not self._finished:
             self._obs.append(timestep.observation)
         if (
@@ -194,6 +197,8 @@ class ScrewMPCAgent:
         """Checks whether the agent has reached the current goal."""
         if self._goal is None or timestep.reward is None:
             return False
+        # error = np.linalg.norm(dqrobotics.vec8(self.motion_generator._kin.fkm(timestep.observation["panda_joint_pos"]))-dqrobotics.vec8(self._goal))
+        # return error < 0.05
         return float(timestep.reward) > -self._goal_tolerance
 
     def get_observation(self) -> dict[str, float | list[float]]:
@@ -221,6 +226,18 @@ class ScrewMPCAgent:
         self._waypoints.extend(waypoints)
         logger.info("Added %d new waypoints to buffer", len(waypoints))
         self._finished = False
+
+    def get_u_state_observation(
+        self, timestep: timestep_preprocessor.PreprocessorTimestep
+    ) -> np.ndarray:
+        del timestep
+        return self.motion_generator.u_state
+
+    def get_mpc_state_observation(
+        self, timestep: timestep_preprocessor.PreprocessorTimestep
+    ) -> np.ndarray:
+        del timestep
+        return self.motion_generator.mpc_state
 
 
 class RPCInterface:
