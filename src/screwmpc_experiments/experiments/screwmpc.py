@@ -6,16 +6,19 @@ import pathlib
 import threading
 import time
 import typing
+from collections import deque
 from xmlrpc import server
 
 import dm_env
 import dm_robotics.panda
 import dqrobotics
+import mujoco
 import numpy as np
 import panda_py
 import roboticstoolbox as rtb
 import spatialmath
 from dm_control import mjcf
+from dm_control.viewer import application, renderer, user_input
 from dm_env import specs
 from dm_robotics.agentflow import spec_utils
 from dm_robotics.agentflow.preprocessors import timestep_preprocessor
@@ -99,6 +102,7 @@ class ScrewMPCAgent:
         self._spec = spec
         self._goal_tolerance = goal_tolerance
         self._waypoints: list[tuple[np.ndarray, np.ndarray, int]] = []
+        self._intermediate: list[tuple[np.ndarray, np.ndarray, int]] | None = None
         self._goal: dqrobotics.DQ | None = None
         self._x_goal: tuple[np.ndarray, np.ndarray, float] | None = None
         self._obs: list[dict[str, np.ndarray]] = []
@@ -126,11 +130,35 @@ class ScrewMPCAgent:
             )
         if self._x_goal is not None:
             # set goal object pose
-            action[-8:] = np.r_[self._x_goal[0], self._x_goal[1], self._x_goal[2]]
+            action[8:16] = np.r_[self._x_goal[0], self._x_goal[1], self._x_goal[2]]
             action[7] = self._x_goal[2]
+
+            if self._intermediate is not None:
+                for i in range(10):
+                    action[i * 7 + 16 : i * 7 + 16 + 7] = np.r_[
+                        self._intermediate[i][0], self._intermediate[i][1].vec
+                    ]
+
+            # joint_positions = panda_py.fk(timestep.observation["panda_joint_pos"])
+            # start = spatialmath.SE3(joint_positions)
+            # start *= T_F_EE.inv()
+
+            # intermediate = dqutil.interpolate_waypoints(
+            #     [
+            #         (start.t, spatialmath.UnitQuaternion(start)),
+            #         (self._x_goal[0], spatialmath.UnitQuaternion(self._x_goal[1])),
+            #     ],
+            #     10,
+            # )[1:-1]
+
+            # for i in range(10):
+            #     action[i * 7 + 16 : i * 7 + 16 + 7] = np.r_[
+            #         intermediate[i][0], intermediate[i][1].vec
+            #     ]
         if self.at_goal(timestep):
             logger.info("Goal reached.")
             self._goal = None
+            self.motion_generator.reset()
         if not self._finished:
             self._obs.append(timestep.observation)
         if (
@@ -141,6 +169,7 @@ class ScrewMPCAgent:
             try:
                 x_goal = self._waypoints.pop(0)
                 self._goal = pose_to_dq(x_goal)
+
                 if (
                     self._x_goal is not None
                     and np.all(x_goal[0] == self._x_goal[0])
@@ -151,8 +180,27 @@ class ScrewMPCAgent:
                     self._dead_time = timestep.observation["time"][0] + self._grasp_time
                 else:
                     logger.info("Tracking new goal: %s", self._goal)
+
+                    joint_positions = panda_py.fk(
+                        timestep.observation["panda_joint_pos"]
+                    )
+                    start = spatialmath.SE3(joint_positions)
+                    start *= T_F_EE.inv()
+
+                    self._intermediate = dqutil.interpolate_waypoints(
+                        [
+                            (start.t, spatialmath.UnitQuaternion(start)),
+                            (
+                                x_goal[0],
+                                spatialmath.UnitQuaternion(x_goal[1]),
+                            ),
+                        ],
+                        10,
+                    )[1:-1]
+
                 self._x_goal = x_goal
-                action[-8:] = np.r_[self._x_goal[0], self._x_goal[1], self._x_goal[2]]
+                action[8:16] = np.r_[self._x_goal[0], self._x_goal[1], self._x_goal[2]]
+
             except IndexError:
                 self._finished = True
                 self._dead_time = 0
@@ -191,6 +239,20 @@ class ScrewMPCAgent:
         self._waypoints.extend(waypoints)
         logger.info("Added %d new waypoints to buffer", len(waypoints))
         self._finished = False
+
+    def get_u_state_observation(
+        self, timestep: timestep_preprocessor.PreprocessorTimestep
+    ) -> np.ndarray:
+        """Retrieves the motion generator's internal `u` state observation."""
+        del timestep
+        return self.motion_generator.u_state
+
+    def get_mpc_state_observation(
+        self, timestep: timestep_preprocessor.PreprocessorTimestep
+    ) -> np.ndarray:
+        """Retrieves the motion generator's internal `mpc` state observation."""
+        del timestep
+        return self.motion_generator.mpc_state
 
 
 class RPCInterface:
@@ -376,7 +438,7 @@ class RPCInterface:
 class Goal(prop.Prop):  # type: ignore[misc]
     """Intangible prop representing the goal pose."""
 
-    def _build(self) -> None:  # pylint: disable=arguments-differ
+    def _build(self, color: tuple[float, float, float, float] = (1, 0, 0, 0.3)) -> None:  # pylint: disable=arguments-differ
         xml_path = (
             pathlib.Path(pathlib.Path(dm_robotics.panda.__file__).parent)
             / "assets"
@@ -385,7 +447,7 @@ class Goal(prop.Prop):  # type: ignore[misc]
         )
         mjcf_root = mjcf.from_path(xml_path)
         for geom in mjcf_root.find_all("geom"):
-            geom.rgba = (1, 0, 0, 0.3)
+            geom.rgba = color
             geom.conaffinity = 0
             geom.contype = 0
         rotated_root = mjcf.RootElement()
@@ -400,11 +462,17 @@ class SceneEffector(effector.Effector):  # type: ignore[misc]
     Effector used to update the state of the scene.
     """
 
-    def __init__(self, goal: Goal) -> None:
+    def __init__(self, goal: Goal, intermediate: list[Goal]) -> None:
         self._goal = goal
+        self._intermediate = intermediate
         self._actuator = goal.mjcf_model.find(
             "actuator", "panda_hand/panda_hand_actuator"
         )
+        self._intermediate_actuator = []
+        for i in self._intermediate:
+            self._intermediate_actuator.append(
+                i.mjcf_model.find("actuator", "panda_hand/panda_hand_actuator")
+            )
         self._spec = None
 
     def close(self) -> None:
@@ -419,10 +487,10 @@ class SceneEffector(effector.Effector):  # type: ignore[misc]
         del physics
         if self._spec is None:
             self._spec = specs.BoundedArray(
-                (8,),
+                (78,),
                 np.float32,
-                np.full((8,), -10, dtype=np.float32),
-                np.full((8,), 10, dtype=np.float32),
+                np.full((78,), -10, dtype=np.float32),
+                np.full((78,), 10, dtype=np.float32),
                 "\t".join(
                     [
                         f"{self.prefix}_{n}"
@@ -436,6 +504,7 @@ class SceneEffector(effector.Effector):  # type: ignore[misc]
                             "goal_qz",
                             "goal_grasp",
                         ]
+                        + [f"intermediate_{i}" for i in range(70)]
                     ]
                 ),
             )
@@ -447,8 +516,13 @@ class SceneEffector(effector.Effector):  # type: ignore[misc]
 
     def set_control(self, physics: mjcf.Physics, command: np.ndarray) -> None:
         pos = command[:3]
-        self._goal.set_pose(physics, pos, command[3:-1])
-        physics.bind(self._actuator).ctrl = command[-1]
+        self._goal.set_pose(physics, pos, command[3:7])
+        physics.bind(self._actuator).ctrl = command[7]
+
+        for i, __ in enumerate(self._intermediate):
+            subcommand = command[(i + 1) * 7 + 1 : (i + 1) * 7 + 8]
+            self._intermediate[i].set_pose(physics, subcommand[:3], subcommand[3:7])
+            physics.bind(self._intermediate_actuator).ctrl = command[7]
 
 
 def goal_reward(observation: spec_utils.ObservationValue) -> float:
@@ -497,6 +571,32 @@ def save_obs(obs: list[dict[str, np.ndarray]], output_file: str) -> None:
             writer.writerow(new_row)
 
 
+class ScrewMPCActionPlot(utils.ActionPlot):  # type: ignore[misc]
+    """A plotting component for :py:class:`dm_control.viewer.application.Application`
+    that plots the agent's actions in a screwmpc experiment.
+    """
+
+    def _init_buffer(self) -> None:
+        self.maxlines = 8
+        for _1 in range(self.maxlines):
+            self.y.append(deque(maxlen=self.maxlen))
+        self.reset_data()
+
+    def render(self, context: mujoco.MjrContext, viewport: renderer.Viewport) -> None:
+        if self._rt._time_step is None or self._rt.last_action is None:  # pylint: disable=protected-access
+            return
+        for i, a in enumerate(self._rt.last_action):
+            if i > 7:
+                break
+            self.fig.linepnt[i] = self.maxlen
+            self.y[i].append(a)
+            self.fig.linedata[i][: self.maxlen * 2] = np.array(
+                [self.x, self.y[i]]
+            ).T.reshape((-1,))
+        pos = mujoco.MjrRect(300 + 5, viewport.height - 200 - 5, 300, 200)  # pylint: disable=no-member
+        mujoco.mjr_figure(pos, self.fig, context.ptr)  # pylint: disable=no-member
+
+
 class ScrewMPCApp(utils.ApplicationWithPlot):  # type: ignore[misc]
     """Extends the GUI application with RPC functionality."""
 
@@ -505,46 +605,19 @@ class ScrewMPCApp(utils.ApplicationWithPlot):  # type: ignore[misc]
         title: str = "ScrewMPC Experiment",
         width: int = 1024,
         height: int = 768,
-        box: prop.Block = None,
     ):
         super().__init__(title, width, height)
         self._viewer.render_settings.toggle_rendering_flag(0)
         self._viewer.render_settings.toggle_rendering_flag(2)
-        self._box = box
-        self.server = server.SimpleXMLRPCServer(
-            ("0.0.0.0", 9001), allow_none=True, logRequests=False
-        )
-        self.server.register_function(self.reload_box, "reload_box")
-        self._thread = threading.Thread(target=self.server.serve_forever)
-        self._thread.start()
 
-    def reload_box(
-        self,
-        pose: tuple[np.ndarray, np.ndarray] | None = None,
-        size: np.ndarray | None = None,
-    ) -> None:
-        """Reload the bounding box object with new size and pose."""
-        if self._box is None or pose is None or size is None:
-            return
-        self._box.mjcf_model.find("geom", "body").size[:] = size
-        self._box.mjcf_model.find("geom", "body").pos[:] = pose[0]
-        self._box.mjcf_model.find("geom", "body").quat[:] = pose[1]
-        logger.info("Updating bounding box object")
-        self._restart_runtime()
-
-    def launch(
-        self,
-        environment_loader: subtask_env.SubTaskEnvironment,
-        policy: typing.Callable[[dm_env.TimeStep], np.ndarray] | None = None,
-    ) -> None:
-        super().launch(environment_loader, policy)
-        self.shutdown()
-
-    def shutdown(self) -> None:
-        """Shut down the server and close any open connections."""
-        self.server.shutdown()
-        self.server.socket.close()
-        self._thread.join()
+    def _perform_deferred_reload(self, params: application.ReloadParams) -> None:
+        application.Application._perform_deferred_reload(self, params)  # pylint: disable=protected-access
+        cmp = utils.ObservationPlot(self._runtime)
+        self._renderer.components += cmp
+        self._renderer.components += ScrewMPCActionPlot(self._runtime)
+        self._renderer.components += utils.RewardPlot(self._runtime)
+        self._input_map.bind(cmp.next_obs, user_input.KEY_F4)
+        self._input_map.bind(cmp.prev_obs, user_input.KEY_F3)
 
 
 class Box(prop.Prop):  # type: ignore[misc]
@@ -579,10 +652,10 @@ def _make_block_model(
         pos=pos,
         quat=quat,
         size=size,
-        mass=0.10,
+        mass=0.01,
         solref=solref,
         solimp=solimp,
-        condim=4,
+        condim=1,
         rgba=color,
     )
     del box
@@ -596,7 +669,7 @@ def compute_trajectory(
     dt: float = 0.001,
     linear_threshold: float = 0.05,
     angular_threshold: float = 5,
-    max_steps: int = 100,
+    max_steps: int = 1000,
 ) -> tuple[list[np.ndarray], bool]:
     """Offline computation of trajectory from `q_init` to `x_d`."""
     q_robot: np.ndarray = q_init.copy()
