@@ -243,12 +243,14 @@ class ScrewMPCAgent:
     def get_u_state_observation(
         self, timestep: timestep_preprocessor.PreprocessorTimestep
     ) -> np.ndarray:
+        """Retrieves the motion generator's internal `u` state observation."""
         del timestep
         return self.motion_generator.u_state
 
     def get_mpc_state_observation(
         self, timestep: timestep_preprocessor.PreprocessorTimestep
     ) -> np.ndarray:
+        """Retrieves the motion generator's internal `mpc` state observation."""
         del timestep
         return self.motion_generator.mpc_state
 
@@ -517,7 +519,7 @@ class SceneEffector(effector.Effector):  # type: ignore[misc]
         self._goal.set_pose(physics, pos, command[3:7])
         physics.bind(self._actuator).ctrl = command[7]
 
-        for i in range(len(self._intermediate)):
+        for i, __ in enumerate(self._intermediate):
             subcommand = command[(i + 1) * 7 + 1 : (i + 1) * 7 + 8]
             self._intermediate[i].set_pose(physics, subcommand[:3], subcommand[3:7])
             physics.bind(self._intermediate_actuator).ctrl = command[7]
@@ -581,7 +583,7 @@ class ScrewMPCActionPlot(utils.ActionPlot):  # type: ignore[misc]
         self.reset_data()
 
     def render(self, context: mujoco.MjrContext, viewport: renderer.Viewport) -> None:
-        if self._rt._time_step is None or self._rt.last_action is None:
+        if self._rt._time_step is None or self._rt.last_action is None:  # pylint: disable=protected-access
             return
         for i, a in enumerate(self._rt.last_action):
             if i > 7:
@@ -591,8 +593,8 @@ class ScrewMPCActionPlot(utils.ActionPlot):  # type: ignore[misc]
             self.fig.linedata[i][: self.maxlen * 2] = np.array(
                 [self.x, self.y[i]]
             ).T.reshape((-1,))
-        pos = mujoco.MjrRect(300 + 5, viewport.height - 200 - 5, 300, 200)
-        mujoco.mjr_figure(pos, self.fig, context.ptr)
+        pos = mujoco.MjrRect(300 + 5, viewport.height - 200 - 5, 300, 200)  # pylint: disable=no-member
+        mujoco.mjr_figure(pos, self.fig, context.ptr)  # pylint: disable=no-member
 
 
 class ScrewMPCApp(utils.ApplicationWithPlot):  # type: ignore[misc]
@@ -609,7 +611,7 @@ class ScrewMPCApp(utils.ApplicationWithPlot):  # type: ignore[misc]
         self._viewer.render_settings.toggle_rendering_flag(2)
 
     def _perform_deferred_reload(self, params: application.ReloadParams) -> None:
-        application.Application._perform_deferred_reload(self, params)
+        application.Application._perform_deferred_reload(self, params)  # pylint: disable=protected-access
         cmp = utils.ObservationPlot(self._runtime)
         self._renderer.components += cmp
         self._renderer.components += ScrewMPCActionPlot(self._runtime)
