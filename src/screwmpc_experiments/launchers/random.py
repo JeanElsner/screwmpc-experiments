@@ -44,7 +44,7 @@ def main() -> None:
     )
     xml_path = pathlib.Path(__file__).parent / ".." / "assets" / "random.xml"
     args = parser.parse_args()
-    panda_env, robot_params = common.create_environment(xml_path, args)
+    panda_env, robot_params, agent = common.create_environment(xml_path, args)
 
     with panda_env.build_task_environment() as env:
         rng = np.random.RandomState(seed=args.seed)  # pylint: disable=no-member
@@ -76,7 +76,6 @@ def main() -> None:
         poses = screwmpc.generate_random_poses(
             args.n, robot_params.joint_positions, min_pose_bounds, max_pose_bounds, rng
         )
-        agent = common.create_agent(env, args)
         agent.add_waypoints(poses)
 
         # Run the environment and agent either in headless mode or inside the GUI.
@@ -85,5 +84,3 @@ def main() -> None:
             app.launch(env, policy=agent.step)
         else:
             common.run(env, agent)
-
-    agent.shutdown()
