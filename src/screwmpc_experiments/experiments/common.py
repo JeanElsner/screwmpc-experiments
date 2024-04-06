@@ -40,11 +40,15 @@ def create_environment(
     arena.attach(goal)
     intermediate = []
     blend = np.linspace(0, 1, 10)
-    for i in range(10):
-        intermediate.append(screwmpc.Goal(color=(1 - blend[i], blend[i], 0, 0.3)))
-        arena.attach(intermediate[-1])
 
-    panda_env = environment.PandaEnvironment(robot_params, arena, control_timestep=0.02)
+    if args.visualize_sclerp:
+        for i in range(10):
+            intermediate.append(screwmpc.Goal(color=(1 - blend[i], blend[i], 0, 0.3)))
+            arena.attach(intermediate[-1])
+
+    panda_env = environment.PandaEnvironment(
+        robot_params, arena, control_timestep=0.02, physics_timestep=0.001
+    )
 
     # Add extra sensors for flange and goal reference sites
     # to make them observable to the agent and preprocessors.
@@ -60,12 +64,12 @@ def create_environment(
     panda_env.add_extra_effectors([screwmpc.SceneEffector(goal, intermediate)])
     panda_env.add_timestep_preprocessors(
         [
-            observation_transforms.AddObservation(
-                "u_state", agent.get_u_state_observation
-            ),
-            observation_transforms.AddObservation(
-                "mpc_state", agent.get_mpc_state_observation
-            ),
+            # observation_transforms.AddObservation(
+            #     "u_state", agent.get_u_state_observation
+            # ),
+            # observation_transforms.AddObservation(
+            #     "mpc_state", agent.get_mpc_state_observation
+            # ),
             observation_transforms.AddObservation(
                 "manipulability",
                 screwmpc.manipulability,
@@ -81,8 +85,6 @@ def create_environment(
                     "panda_tcp_quat",
                     "panda_force",
                     "panda_torque",
-                    "u_state",
-                    "mpc_state",
                 ]
             ),
         ]
@@ -138,6 +140,11 @@ def create_argparser() -> argparse.ArgumentParser:
         "--move-to-start",
         action="store_true",
         help="move the robot into the start position in the beginning",
+    )
+    parser.add_argument(
+        "--visualize-sclerp",
+        action="store_true",
+        help="visualize sclerp poses",
     )
     return parser
 
