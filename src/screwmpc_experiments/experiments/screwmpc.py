@@ -164,7 +164,7 @@ class ScrewMPCAgent:
                 timestep.observation["panda_joint_pos"]
             )
             screw = get_screw(start, self._goal)
-            self._plucker = np.r_[*screw]
+            self._plucker = np.hstack(screw)
 
         if self._x_goal is not None:
             # set goal object pose
@@ -237,7 +237,7 @@ class ScrewMPCAgent:
                         10,
                     )[1:-1]
                     screw = get_screw(self._start, self._goal)
-                    self._plucker_des = self._plucker = np.r_[*screw]
+                    self._plucker_des = self._plucker = np.hstack(screw)
 
                 self._x_goal = x_goal
                 action[8:16] = np.r_[self._x_goal[0], self._x_goal[1], self._x_goal[2]]
