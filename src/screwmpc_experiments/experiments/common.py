@@ -71,20 +71,33 @@ def create_environment(
             #     "mpc_state", agent.get_mpc_state_observation
             # ),
             observation_transforms.AddObservation(
+                "plucker",
+                agent.get_plucker_observation,
+                specs.Array((8,), dtype=np.float64),
+            ),
+            observation_transforms.AddObservation(
+                "plucker_des",
+                agent.get_plucker_desired_observation,
+                specs.Array((8,), dtype=np.float64),
+            ),
+            observation_transforms.AddObservation(
                 "manipulability",
                 screwmpc.manipulability,
                 specs.Array((1,), dtype=np.float32),
             ),
-            rewards.ComputeReward(screwmpc.goal_reward),
+            rewards.ComputeReward(screwmpc.goal_reward, output_spec_shape=(3,)),
             observation_transforms.RetainObservations(
                 [
                     "time",
                     "manipulability",
                     "panda_joint_pos",
+                    "panda_joint_vel",
                     "panda_tcp_pos",
                     "panda_tcp_quat",
                     "panda_force",
                     "panda_torque",
+                    "plucker",
+                    "plucker_des",
                 ]
             ),
         ]

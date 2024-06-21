@@ -87,6 +87,22 @@ def generate_random_poses(
     return poses
 
 
+def get_screw(
+    start: dqrobotics.DQ, goal: dqrobotics.DQ
+) -> tuple[np.ndarray, np.ndarray, float, float]:
+    """Compute Plücker coordinates for motion between two points."""
+    screw = [*dqutil.dq_to_plucker(dqutil.delta_dq(start, goal))]
+    screw[:2] = normalize(screw[0]), normalize(screw[1])
+    return tuple(screw)
+
+
+def normalize(vec: np.ndarray) -> np.ndarray:
+    norm = np.linalg.norm(vec)
+    if 0 < norm < np.inf:
+        return vec / norm
+    return vec
+
+
 class ScrewMPCAgent:
     """Basic dm-robotics agent that uses a screwmpc motion generator."""
 
@@ -103,7 +119,10 @@ class ScrewMPCAgent:
         self._goal_tolerance = goal_tolerance
         self._waypoints: list[tuple[np.ndarray, np.ndarray, int]] = []
         self._intermediate: list[tuple[np.ndarray, np.ndarray, int]] | None = None
+        self._start: dqrobotics.DQ | None = None
         self._goal: dqrobotics.DQ | None = None
+        self._plucker = np.zeros(8)
+        self._plucker_des = np.zeros(8)
         self._x_goal: tuple[np.ndarray, np.ndarray, float] | None = None
         self._obs: list[dict[str, np.ndarray]] = []
         self._output_file = output_file
@@ -113,6 +132,18 @@ class ScrewMPCAgent:
         self.motion_generator = create_screwmpc(sclerp, use_mp)
         self.sclerp = sclerp
         self.use_mp = use_mp
+
+    def get_plucker_observation(
+        self, timestep: timestep_preprocessor.PreprocessorTimestep
+    ) -> np.ndarray:
+        del timestep
+        return self._plucker
+
+    def get_plucker_desired_observation(
+        self, timestep: timestep_preprocessor.PreprocessorTimestep
+    ) -> np.ndarray:
+        del timestep
+        return self._plucker_des
 
     def step(self, timestep: dm_env.TimeStep) -> np.ndarray:
         """Computes an action given a timestep observation.
@@ -128,6 +159,13 @@ class ScrewMPCAgent:
             action[:7] = self.motion_generator.step(
                 timestep.observation["panda_joint_pos"], self._goal
             )
+
+            start = self.motion_generator._kin.fkm(
+                timestep.observation["panda_joint_pos"]
+            )
+            screw = get_screw(start, self._goal)
+            self._plucker = np.hstack(screw)
+
         if self._x_goal is not None:
             # set goal object pose
             action[8:16] = np.r_[self._x_goal[0], self._x_goal[1], self._x_goal[2]]
@@ -181,15 +219,16 @@ class ScrewMPCAgent:
                 else:
                     logger.info("Tracking new goal: %s", self._goal)
 
-                    joint_positions = panda_py.fk(
+                    self._start = self.motion_generator._kin.fkm(
                         timestep.observation["panda_joint_pos"]
                     )
-                    start = spatialmath.SE3(joint_positions)
-                    start *= T_F_EE.inv()
-
+                    start = (
+                        spatialmath.SE3(-0.041, 0, 0)
+                        * spatialmath.UnitDualQuaternion(self._start.vec8()).SE3()
+                    )
                     self._intermediate = dqutil.interpolate_waypoints(
                         [
-                            (start.t, spatialmath.UnitQuaternion(start)),
+                            (start.t, start.UnitQuaternion()),
                             (
                                 x_goal[0],
                                 spatialmath.UnitQuaternion(x_goal[1]),
@@ -197,6 +236,8 @@ class ScrewMPCAgent:
                         ],
                         10,
                     )[1:-1]
+                    screw = get_screw(self._start, self._goal)
+                    self._plucker_des = self._plucker = np.hstack(screw)
 
                 self._x_goal = x_goal
                 action[8:16] = np.r_[self._x_goal[0], self._x_goal[1], self._x_goal[2]]
@@ -212,7 +253,7 @@ class ScrewMPCAgent:
         """Checks whether the agent has reached the current goal."""
         if self._goal is None or timestep.reward is None:
             return False
-        return float(timestep.reward) > -self._goal_tolerance
+        return float(timestep.reward[0]) > -self._goal_tolerance
 
     def get_observation(self) -> dict[str, float | list[float]]:
         """Get the last environment observation."""
@@ -525,11 +566,25 @@ class SceneEffector(effector.Effector):  # type: ignore[misc]
             physics.bind(self._intermediate_actuator).ctrl = command[7]
 
 
-def goal_reward(observation: spec_utils.ObservationValue) -> float:
+def goal_reward(observation: spec_utils.ObservationValue) -> np.ndarray:
     """Computes a reward based on distance between end-effector and goal."""
     pos_distance = np.linalg.norm(observation["goal_pos"] - observation["flange_pos"])
     rot_dist = tr.quat_dist(observation["goal_quat"], observation["flange_quat"])
-    return float(-pos_distance - rot_dist / np.pi)
+
+    if (
+        np.linalg.norm(observation["plucker_des"][3:6]) < np.inf
+        and observation["plucker_des"][6] > 0.02
+    ):
+        l_error = -1 + np.dot(
+            observation["plucker"][:3], observation["plucker_des"][:3]
+        )
+        m_error = -1 + np.dot(
+            observation["plucker"][3:6], observation["plucker_des"][3:6]
+        )
+    else:
+        l_error = 0
+        m_error = 0
+    return np.array([float(-pos_distance - rot_dist / np.pi), l_error, m_error])
 
 
 def manipulability(timestep: timestep_preprocessor.PreprocessorTimestep) -> np.ndarray:
