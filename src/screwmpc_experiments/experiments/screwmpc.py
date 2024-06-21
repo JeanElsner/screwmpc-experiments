@@ -224,11 +224,14 @@ class ScrewMPCAgent:
                     )
                     start = (
                         spatialmath.SE3(-0.041, 0, 0)
-                        * spatialmath.UnitDualQuaternion(self._start.vec8()).SE3()
+                        * spatialmath.SE3(self._start.translation().vec3())
+                        * spatialmath.UnitQuaternion(
+                            self._start.rotation().vec4(), check=False
+                        ).SE3()
                     )
                     self._intermediate = dqutil.interpolate_waypoints(
                         [
-                            (start.t, start.UnitQuaternion()),
+                            (start.t, spatialmath.UnitQuaternion(start)),
                             (
                                 x_goal[0],
                                 spatialmath.UnitQuaternion(x_goal[1]),
